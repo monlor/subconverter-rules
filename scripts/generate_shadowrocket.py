@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -125,7 +126,7 @@ def fetch_ruleset(url: str) -> str:
             try:
                 with urlopen(request, timeout=30) as response:
                     return response.read().decode("utf-8")
-            except OSError as exc:
+            except (OSError, IncompleteRead) as exc:
                 last_error = exc
                 if attempt < 2:
                     time.sleep(1)
