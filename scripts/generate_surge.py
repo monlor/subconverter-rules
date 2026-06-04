@@ -24,7 +24,8 @@ LANDING_PROVIDER_GROUP = "代理节点"
 RELAY_PROVIDER_GROUP = "中转节点"
 DEFAULT_INTERFACE_POLICY = "🌐 默认网卡"
 CELLULAR_POLICY_GROUP = "📱 蜂窝流量"
-RELAY_INTERFACE_POLICY = "📶 中转网卡"
+RELAY_INTERFACE_POLICY = "↔️ 中转网卡"
+FULL_NODE_SELECT_GROUPS = {"🚀 手动选择", "📶 VoWiFi"}
 RELAY_INTERFACE_NAMES = (
     *(f"en{index}" for index in range(11)),
     *(f"utun{index}" for index in range(6)),
@@ -327,7 +328,7 @@ def convert_select_proxy_group(
     fields.extend(policies)
     if not policies and group.name != "🚀 默认节点":
         included_groups = [LANDING_PROVIDER_GROUP]
-        if relay_url and group.name == "🚀 手动选择":
+        if relay_url and group.name in FULL_NODE_SELECT_GROUPS:
             included_groups.append(RELAY_PROVIDER_GROUP)
         if len(included_groups) == 1:
             fields.append(f"include-other-group={included_groups[0]}")

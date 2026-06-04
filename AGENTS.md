@@ -60,7 +60,7 @@ rtk python3 scripts/generate_surge.py \
 - `📱 蜂窝流量`, `代理节点`, and `中转节点` are always generated with `hidden=true`.
 - Bottom regional node groups and relay test groups are hidden by default. Use `--no-hide-node-groups` to show those generated groups. The generated hidden parameter is `hidden=true`.
 - Surge output maps `full.ini` `url-test` groups to Surge `smart` groups and omits `url`, `interval`, and `tolerance` from those groups; keep `full.ini` as `url-test` for Shadowrocket compatibility.
-- `📶 中转网卡` is always generated as a selectable group backed by `[Proxy]` direct policies named `🛜 网卡 <interface>` for `en0` through `en10`, `utun0` through `utun5`, and `pdp_ip0`.
+- `↔️ 中转网卡` is always generated as a selectable group backed by `[Proxy]` direct policies named `🛜 网卡 <interface>` for `en0` through `en10`, `utun0` through `utun5`, and `pdp_ip0`.
 - `🇨🇳 中国直连` follows `full.ini` order and defaults to `DIRECT`; it does not inject cellular or relay interface policies.
 - Surge `select` groups keep `DIRECT` first only when it is the default option. If `DIRECT` is present but not default, the generator moves it to the bottom.
 - Common macOS interface names:
