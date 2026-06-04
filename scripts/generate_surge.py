@@ -489,7 +489,7 @@ def generate_provider_groups(
             ",".join(
                 [
                     f"{CELLULAR_POLICY_GROUP} = select",
-                    "CELLULAR",
+                    "CELLULAR-ONLY",
                     *always_hidden(),
                 ]
             ),
