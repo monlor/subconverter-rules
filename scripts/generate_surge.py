@@ -15,6 +15,7 @@ FULL_INI = ROOT / "full.ini"
 DEFAULT_OUTPUT = ROOT / "surge" / "full.conf"
 AGENT_TEST_OUTPUT = ROOT / "surge" / "full.local.conf"
 RULES_OUTPUT_DIR = ROOT / "surge" / "rules"
+SURGE_TEMPLATE = ROOT / "surge" / "template.conf"
 RAW_REPO_URL = "https://raw.githubusercontent.com/monlor/subconverter-rules/main/"
 GH_PROXY_RAW_REPO_URL = "https://gh.monlor.com/" + RAW_REPO_URL
 SURGE_RULES_URL = GH_PROXY_RAW_REPO_URL + "surge/rules/"
@@ -41,76 +42,9 @@ MAC_INTERFACE_NOTES = (
     "# pdp_ip0: cellular data interface on iOS and some tethering environments",
     "# lo0: loopback, not usable as internet egress",
 )
-GENERAL_LINES = (
-    (
-        "skip-proxy = localhost, *.local, injections.adguard.org, local.adguard.org, "
-        "captive.apple.com, guzzoni.apple.com, 0.0.0.0/8, 10.0.0.0/8, "
-        "17.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, "
-        "172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, "
-        "192.88.99.0/24, 198.18.0.0/15, 198.51.100.0/24, "
-        "203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32"
-    ),
-    (
-        "tun-excluded-routes = 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, "
-        "127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, "
-        "192.0.2.0/24, 192.168.0.0/16, 192.88.99.0/24, 198.51.100.0/24, "
-        "203.0.113.0/24, 224.0.0.0/4, 255.255.255.255/32"
-    ),
-    "dns-server = 223.5.5.5, 114.114.114.114",
-    "encrypted-dns-server = https://doh.pub/dns-query",
-    "ipv6 = true",
-    "ipv6-vif = auto",
-    "external-controller-access = change@0.0.0.0:6170",
-    "http-api = change@0.0.0.0:6171",
-    "http-api-tls = false",
-    "http-api-web-dashboard = true",
-    "wifi-assist = true",
-    "allow-wifi-access = true",
-    "wifi-access-http-port = 6152",
-    "wifi-access-socks5-port = 6153",
-    "allow-hotspot-access = true",
-    "include-cellular-services = true",
-    "include-all-networks = true",
-    "include-local-networks = false",
-    "http-listen = 0.0.0.0:6152",
-    "socks5-listen = 0.0.0.0:6153",
-    "proxy-test-url = http://www.gstatic.com/generate_204",
-    "test-timeout = 4",
-    "loglevel = notify",
-    "use-local-host-item-for-proxy = true",
-    "include-apns = true",
-    "show-error-page-for-reject = true",
-    "read-etc-hosts = true",
-    (
-        "always-real-ip = *.srv.nintendo.net, *.stun.playstation.net, xbox.*.microsoft.com, "
-        "*.xboxlive.com, *.battlenet.com.cn, *.battlenet.com, *.blzstatic.cn, *.battle.net, "
-        "stun.l.google.com, stun1.l.google.com, stun2.l.google.com, stun3.l.google.com, "
-        "stun4.l.google.com, derp*.tailscale.com, derp*-all.tailscale.com"
-    ),
-    "exclude-simple-hostnames = true",
-    "udp-policy-not-supported-behaviour = REJECT",
-    "proxy-restricted-to-lan = false",
-    "geoip-maxmind-url = https://unpkg.zhimg.com/rulestatic@1.0.1/Country.mmdb",
-)
-HOST_LINES = (
-    "*.sankuaei.com = server:https://anycast.jllyzx.com/5428ab28",
-    "*.aixifan7498.com = server:https://anycast.jllyzx.com/5428ab28",
-    "*.afdiancdn.org = server:https://anycast.jllyzx.com/5428ab28",
-    "apple.com = server:system",
-    "*.apple.com = server:system",
-    "*.cdn-apple.com = server:system",
-    "icloud.com = server:system",
-    "*.icloud.com = server:system",
-    "icloud-content.com = server:system",
-    "*.icloud-content.com = server:system",
-    "epdg.epc.mnc002.mcc262.pub.3gppnetwork.org = server:84.200.69.80",
-)
-HEADER_REWRITE_LINES = (
-    "# 强制将发往百度网盘 CDN 节点的请求 User-Agent 替换为官方客户端标识",
-    "# http-request ^https?:\\/\\/.*\\.baidupcs\\.com header-replace User-Agent pan.baidu.com",
-    "# 兼容部分小写 header 的情况",
-    "# http-request ^https?:\\/\\/.*\\.baidupcs\\.com header-replace user-agent pan.baidu.com",
-)
+PROXY_SECTION_PLACEHOLDER = "{{PROXY_SECTION}}"
+PROXY_GROUP_SECTION_PLACEHOLDER = "{{PROXY_GROUP_SECTION}}"
+RULE_SECTION_PLACEHOLDER = "{{RULE_SECTION}}"
 
 RULE_TYPE_ALIASES = {
     "DST-PORT": "DEST-PORT",
@@ -463,16 +397,15 @@ def external_policy_modifier(
     return f'external-policy-modifier="{",".join(modifiers)}"'
 
 
-def generate_general_section() -> str:
-    return "\n".join(GENERAL_LINES)
-
-
 def relay_interface_policy(interface_name: str) -> str:
-    return f"📶 中转 {interface_name}"
+    return f"🛜 网卡 {interface_name}"
 
 
 def relay_interface_policies() -> list[str]:
-    return [relay_interface_policy(interface_name) for interface_name in RELAY_INTERFACE_NAMES]
+    return [
+        relay_interface_policy(interface_name)
+        for interface_name in RELAY_INTERFACE_NAMES
+    ]
 
 
 def generate_proxy_section(interface_name: str | None) -> str:
@@ -488,14 +421,6 @@ def generate_proxy_section(interface_name: str | None) -> str:
         )
     lines.append("")
     return "\n".join(lines)
-
-
-def generate_host_section() -> str:
-    return "\n".join(HOST_LINES)
-
-
-def generate_header_rewrite_section() -> str:
-    return "\n".join(HEADER_REWRITE_LINES)
 
 
 def generate_relay_choices(relay_url: str | None) -> list[str]:
@@ -541,7 +466,9 @@ def generate_provider_groups(
     interface_name: str | None,
     hide_node_groups: bool,
 ) -> str:
-    proxy_modifier = external_policy_modifier(interface_name, underlying_proxy="🔀 中转代理")
+    proxy_modifier = external_policy_modifier(
+        interface_name, underlying_proxy="🔀 中转代理"
+    )
     proxy_fields = [
         f"{LANDING_PROVIDER_GROUP} = select",
         f"policy-path={proxy_url}",
@@ -552,12 +479,11 @@ def generate_provider_groups(
     return "\n".join(
         [
             "# External policies. Replace placeholder URLs locally or pass --proxy-url/--relay-url.",
-            "🔀 中转代理 = select,"
-            + ",".join(generate_relay_choices(relay_url)),
+            "🔀 中转代理 = select," + ",".join(generate_relay_choices(relay_url)),
             ",".join(
                 [
                     f"{CELLULAR_POLICY_GROUP} = select",
-                    "CELLULAR-ONLY",
+                    "CELLULAR",
                     *always_hidden(),
                 ]
             ),
@@ -693,33 +619,19 @@ def generate_config(
     rulesets: list[RuleSet],
     converted_rulesets: dict[RuleSet, ConvertedRuleSet],
 ) -> str:
-    return "\n".join(
-        [
-            "#!name=subconverter-rules Surge",
-            "#!desc=Generated from full.ini. One subscription is relay, one subscription is landing proxy.",
-            "",
-            "[General]",
-            generate_general_section(),
-            "",
-            "[Proxy]",
-            generate_proxy_section(interface_name).rstrip(),
-            "",
-            "[Proxy Group]",
-            generate_proxy_groups(
-                relay_url, proxy_url, interface_name, hide_node_groups
-            ).rstrip(),
-            "",
-            "[Rule]",
-            generate_rules(rulesets, converted_rulesets).rstrip(),
-            "",
-            "[Host]",
-            generate_host_section(),
-            "",
-            "[Header Rewrite]",
-            generate_header_rewrite_section(),
-            "",
-        ]
-    )
+    template = SURGE_TEMPLATE.read_text(encoding="utf-8")
+    sections = {
+        PROXY_SECTION_PLACEHOLDER: generate_proxy_section(interface_name).rstrip(),
+        PROXY_GROUP_SECTION_PLACEHOLDER: generate_proxy_groups(
+            relay_url, proxy_url, interface_name, hide_node_groups
+        ).rstrip(),
+        RULE_SECTION_PLACEHOLDER: generate_rules(rulesets, converted_rulesets).rstrip(),
+    }
+    for placeholder, section in sections.items():
+        if placeholder not in template:
+            raise RuntimeError(f"missing template placeholder: {placeholder}")
+        template = template.replace(placeholder, section)
+    return template.rstrip() + "\n"
 
 
 def parse_args() -> argparse.Namespace:

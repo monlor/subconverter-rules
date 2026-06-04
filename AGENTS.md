@@ -41,6 +41,7 @@ rtk python3 scripts/generate_surge.py
 ```
 
 - Default user-facing Surge output is `surge/full.conf`.
+- Static Surge sections such as `[General]`, `[Host]`, `[Header Rewrite]`, `[SSID Setting]`, and `[MITM]` live in `surge/template.conf`; dynamic `[Proxy]`, `[Proxy Group]`, and `[Rule]` sections are injected by `scripts/generate_surge.py`.
 - Agent validation or private airport subscription tests must write to the ignored local output with `--agent-test`:
 
 ```sh
@@ -58,8 +59,8 @@ rtk python3 scripts/generate_surge.py \
 - `--interface` is optional. When set, it injects that default egress interface into generated external subscription policies and creates the selectable `🌐 默认网卡` direct policy. When omitted, `🌐 默认网卡` and external `interface=...` modifiers are not generated.
 - `📱 蜂窝流量`, `代理节点`, and `中转节点` are always generated with `hidden=true`.
 - Bottom regional node groups and relay test groups are hidden by default. Use `--no-hide-node-groups` to show those generated groups. The generated hidden parameter is `hidden=true`.
-- `📶 中转网卡` is always generated as a selectable group backed by `[Proxy]` direct policies for `en0` through `en10`, `utun0` through `utun5`, and `pdp_ip0`.
-- `🇨🇳 中国服务` follows `full.ini` order and defaults to `DIRECT`; it does not inject cellular or relay interface policies.
+- `📶 中转网卡` is always generated as a selectable group backed by `[Proxy]` direct policies named `🛜 网卡 <interface>` for `en0` through `en10`, `utun0` through `utun5`, and `pdp_ip0`.
+- `🇨🇳 中国直连` follows `full.ini` order and defaults to `DIRECT`; it does not inject cellular or relay interface policies.
 - Surge `select` groups keep `DIRECT` first only when it is the default option. If `DIRECT` is present but not default, the generator moves it to the bottom.
 - Common macOS interface names:
   - `en0`: usually Wi-Fi or the primary default interface.
