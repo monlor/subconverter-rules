@@ -4,3 +4,4 @@ package-lock.json
 package.json
 .spec-workflow
 surge/full.local.conf
+full.conf
