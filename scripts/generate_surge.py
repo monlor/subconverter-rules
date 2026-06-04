@@ -345,14 +345,20 @@ def convert_select_proxy_group(
 def convert_external_proxy_group(group: ProxyGroup, hide_node_groups: bool) -> str:
     regex = group.items[0] if len(group.items) > 0 else ""
     url, interval, tolerance = parse_test_options(group)
+    is_smart_group = group.group_type == "url-test"
     fields = [
-        group.group_type,
+        "smart" if is_smart_group else group.group_type,
         f"include-other-group={LANDING_PROVIDER_GROUP}",
-        f"url={url}",
-        f"interval={interval}",
     ]
-    if tolerance:
-        fields.append(f"tolerance={tolerance}")
+    if not is_smart_group:
+        fields.extend(
+            [
+                f"url={url}",
+                f"interval={interval}",
+            ]
+        )
+        if tolerance:
+            fields.append(f"tolerance={tolerance}")
     if regex:
         fields.append(f"policy-regex-filter={quote_param(regex)}")
     if should_hide_node_group(group.name, hide_node_groups):
@@ -512,38 +518,26 @@ def generate_relay_groups(
         [
             ",".join(relay_fields),
             (
-                "🇭🇰 香港中转 = url-test,"
+                "🇭🇰 香港中转 = smart,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
-                "url=http://www.gstatic.com/generate_204,"
-                "interval=300,"
-                "tolerance=50,"
                 f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(香港|港|HK|Hong Kong).*$"'
             ),
             (
-                "🇸🇬 新加坡中转 = url-test,"
+                "🇸🇬 新加坡中转 = smart,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
-                "url=http://www.gstatic.com/generate_204,"
-                "interval=300,"
-                "tolerance=50,"
                 f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(新加坡|坡|狮城|SG|Singapore).*$"'
             ),
             (
-                "🇺🇲 美国中转 = url-test,"
+                "🇺🇲 美国中转 = smart,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
-                "url=http://www.gstatic.com/generate_204,"
-                "interval=300,"
-                "tolerance=50,"
                 f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(美国|US|United States|洛杉矶|西雅图|硅谷|圣何塞).*$"'
             ),
             (
-                "🇯🇵 日本中转 = url-test,"
+                "🇯🇵 日本中转 = smart,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
-                "url=http://www.gstatic.com/generate_204,"
-                "interval=300,"
-                "tolerance=50,"
                 f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(日本|东京|大阪|泉日|埼玉|JP|Japan).*$"'
             ),
