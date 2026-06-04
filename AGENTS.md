@@ -47,15 +47,19 @@ rtk python3 scripts/generate_surge.py
 rtk python3 scripts/generate_surge.py \
   --agent-test \
   --proxy-url "$PROXY_SURGE_URL" \
-  --interface en0 \
-  --relay-interface en10
+  --relay-url "$RELAY_SURGE_URL" \
+  --interface en0
 ```
 
 - `--output` can still be used for an explicit custom path.
 
-- `--relay-url` is optional. Omit it when only `📱 蜂窝流量`, `📶 中转网卡`, and `DIRECT` should be available in `🔀 中转`; pass it to generate relay subscription region groups.
-- `--interface` sets the default Mac egress interface injected into generated Surge external subscription policies. The default is `en0`.
-- `--relay-interface` sets the selectable `📶 中转网卡` direct policy used for a dedicated relay NIC, such as a USB cellular adapter. The default is `en10`.
+- The Surge generator emits shared `[General]` defaults for DNS, encrypted DNS, VIF excluded routes, LAN proxy listening ports, and GeoIP database URL.
+- `--relay-url` is optional. Omit it when no relay subscription region groups should be generated.
+- `--interface` is optional. When set, it injects that default egress interface into generated external subscription policies and creates the selectable `🌐 默认网卡` direct policy. When omitted, `🌐 默认网卡` and external `interface=...` modifiers are not generated.
+- `📱 蜂窝流量`, `代理节点`, and `中转节点` are always generated with `hidden=true`.
+- Bottom regional node groups and relay test groups are hidden by default. Use `--no-hide-node-groups` to show those generated groups. The generated hidden parameter is `hidden=true`.
+- `📶 中转网卡` is always generated as a selectable group backed by `[Proxy]` direct policies for `en0` through `en10`, `utun0` through `utun5`, and `pdp_ip0`.
+- `🇨🇳 中国服务` follows `full.ini` order and defaults to `DIRECT`; it does not inject cellular or relay interface policies.
 - Surge `select` groups keep `DIRECT` first only when it is the default option. If `DIRECT` is present but not default, the generator moves it to the bottom.
 - Common macOS interface names:
   - `en0`: usually Wi-Fi or the primary default interface.
@@ -63,7 +67,8 @@ rtk python3 scripts/generate_surge.py \
   - `en4` through `en10`: often USB-C Ethernet, USB tethering, or extra adapters.
   - `bridge0`: bridge interface, commonly used by virtualization or Thunderbolt bridge.
   - `awdl0`/`llw0`: Apple Wireless Direct Link interfaces, not recommended as egress.
-  - `utun0`/`utun1`/...: VPN/tunnel interfaces, usable only when intentionally binding a tunnel.
+  - `utun0` through `utun5`: VPN/tunnel interfaces, usable only when intentionally binding a tunnel.
+  - `pdp_ip0`: cellular data interface on iOS and some tethering environments.
   - `lo0`: loopback, not usable as internet egress.
 - Check the current Mac interfaces with:
 

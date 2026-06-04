@@ -21,10 +21,14 @@ SURGE_RULES_URL = GH_PROXY_RAW_REPO_URL + "surge/rules/"
 PROXY_URL_PLACEHOLDER = "https://example.invalid/PROXY_SURGE_URL"
 LANDING_PROVIDER_GROUP = "代理节点"
 RELAY_PROVIDER_GROUP = "中转节点"
+DEFAULT_INTERFACE_POLICY = "🌐 默认网卡"
 CELLULAR_POLICY_GROUP = "📱 蜂窝流量"
 RELAY_INTERFACE_POLICY = "📶 中转网卡"
-DEFAULT_INTERFACE = "en0"
-DEFAULT_RELAY_INTERFACE = "en10"
+RELAY_INTERFACE_NAMES = (
+    *(f"en{index}" for index in range(11)),
+    *(f"utun{index}" for index in range(6)),
+    "pdp_ip0",
+)
 EXCLUDED_NODE_PATTERN = "家宽|5G网络|星链|住宅|游戏|抓包|HOME|GAME|FORWARD|实验"
 MAC_INTERFACE_NOTES = (
     "# Common macOS interfaces:",
@@ -34,24 +38,44 @@ MAC_INTERFACE_NOTES = (
     "# bridge0: bridge interface, commonly used by virtualization or Thunderbolt bridge",
     "# awdl0/llw0: Apple Wireless Direct Link interfaces, not recommended as egress",
     "# utun0/utun1/...: VPN/tunnel interfaces, usable only when you intentionally bind a tunnel",
+    "# pdp_ip0: cellular data interface on iOS and some tethering environments",
     "# lo0: loopback, not usable as internet egress",
 )
 GENERAL_LINES = (
-    "skip-proxy = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.1, localhost, *.local",
+    (
+        "skip-proxy = localhost, *.local, injections.adguard.org, local.adguard.org, "
+        "captive.apple.com, guzzoni.apple.com, 0.0.0.0/8, 10.0.0.0/8, "
+        "17.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, "
+        "172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, "
+        "192.88.99.0/24, 198.18.0.0/15, 198.51.100.0/24, "
+        "203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32"
+    ),
+    (
+        "tun-excluded-routes = 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, "
+        "127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, "
+        "192.0.2.0/24, 192.168.0.0/16, 192.88.99.0/24, 198.51.100.0/24, "
+        "203.0.113.0/24, 224.0.0.0/4, 255.255.255.255/32"
+    ),
+    "dns-server = 223.5.5.5, 114.114.114.114",
+    "encrypted-dns-server = https://doh.pub/dns-query",
     "ipv6 = true",
     "ipv6-vif = auto",
     "external-controller-access = change@0.0.0.0:6170",
     "http-api = change@0.0.0.0:6171",
     "http-api-tls = false",
     "http-api-web-dashboard = true",
+    "wifi-assist = true",
     "allow-wifi-access = true",
+    "wifi-access-http-port = 6152",
+    "wifi-access-socks5-port = 6153",
     "allow-hotspot-access = true",
     "include-cellular-services = true",
     "include-all-networks = true",
     "include-local-networks = false",
-    "http-listen = 0.0.0.0",
-    "socks5-listen = 0.0.0.0",
-    "test-timeout = 10",
+    "http-listen = 0.0.0.0:6152",
+    "socks5-listen = 0.0.0.0:6153",
+    "proxy-test-url = http://www.gstatic.com/generate_204",
+    "test-timeout = 4",
     "loglevel = notify",
     "use-local-host-item-for-proxy = true",
     "include-apns = true",
@@ -66,8 +90,12 @@ GENERAL_LINES = (
     "exclude-simple-hostnames = true",
     "udp-policy-not-supported-behaviour = REJECT",
     "proxy-restricted-to-lan = false",
+    "geoip-maxmind-url = https://unpkg.zhimg.com/rulestatic@1.0.1/Country.mmdb",
 )
 HOST_LINES = (
+    "*.sankuaei.com = server:https://anycast.jllyzx.com/5428ab28",
+    "*.aixifan7498.com = server:https://anycast.jllyzx.com/5428ab28",
+    "*.afdiancdn.org = server:https://anycast.jllyzx.com/5428ab28",
     "apple.com = server:system",
     "*.apple.com = server:system",
     "*.cdn-apple.com = server:system",
@@ -354,14 +382,18 @@ def parse_test_options(group: ProxyGroup) -> tuple[str, str, str]:
     return url, interval, tolerance
 
 
-def convert_select_proxy_group(group: ProxyGroup, relay_url: str | None) -> str:
+def convert_select_proxy_group(
+    group: ProxyGroup,
+    relay_url: str | None,
+    hide_node_groups: bool,
+) -> str:
     policies, regex_filters = parsed_group_items(group)
     policies = move_non_default_direct_to_bottom(policies)
     fields = [group.group_type]
     fields.extend(policies)
-    if not policies and group.name != "🚀 默认":
+    if not policies and group.name != "🚀 默认节点":
         included_groups = [LANDING_PROVIDER_GROUP]
-        if relay_url and group.name == "🚀 手动":
+        if relay_url and group.name == "🚀 手动选择":
             included_groups.append(RELAY_PROVIDER_GROUP)
         if len(included_groups) == 1:
             fields.append(f"include-other-group={included_groups[0]}")
@@ -371,10 +403,12 @@ def convert_select_proxy_group(group: ProxyGroup, relay_url: str | None) -> str:
             )
         for regex_filter in regex_filters:
             fields.append(f"policy-regex-filter={quote_param(regex_filter)}")
+    if should_hide_node_group(group.name, hide_node_groups):
+        fields.extend(maybe_hidden(hide_node_groups))
     return f"{group.name} = {','.join(fields)}"
 
 
-def convert_external_proxy_group(group: ProxyGroup) -> str:
+def convert_external_proxy_group(group: ProxyGroup, hide_node_groups: bool) -> str:
     regex = group.items[0] if len(group.items) > 0 else ""
     url, interval, tolerance = parse_test_options(group)
     fields = [
@@ -387,15 +421,22 @@ def convert_external_proxy_group(group: ProxyGroup) -> str:
         fields.append(f"tolerance={tolerance}")
     if regex:
         fields.append(f"policy-regex-filter={quote_param(regex)}")
+    if should_hide_node_group(group.name, hide_node_groups):
+        fields.extend(maybe_hidden(hide_node_groups))
     return f"{group.name} = {','.join(fields)}"
 
 
-def convert_proxy_group(group: ProxyGroup, relay_url: str | None = None) -> str:
+def convert_proxy_group(
+    group: ProxyGroup,
+    relay_url: str | None = None,
+    interface_name: str | None = None,
+    hide_node_groups: bool = True,
+) -> str:
     if group.group_type == "select":
-        return convert_select_proxy_group(group, relay_url)
+        return convert_select_proxy_group(group, relay_url, hide_node_groups)
 
     if group.group_type in {"url-test", "fallback", "load-balance", "random"}:
-        return convert_external_proxy_group(group)
+        return convert_external_proxy_group(group, hide_node_groups)
 
     fields = [group.group_type]
     for item in group.items:
@@ -409,18 +450,44 @@ def interface_modifier(interface_name: str) -> str:
     return f"interface={interface_name},allow-other-interface=false,dns-follow-interface=true"
 
 
+def external_policy_modifier(
+    interface_name: str | None, underlying_proxy: str | None = None
+) -> str | None:
+    modifiers: list[str] = []
+    if underlying_proxy:
+        modifiers.append(f"underlying-proxy={underlying_proxy}")
+    if interface_name:
+        modifiers.append(interface_modifier(interface_name))
+    if not modifiers:
+        return None
+    return f'external-policy-modifier="{",".join(modifiers)}"'
+
+
 def generate_general_section() -> str:
     return "\n".join(GENERAL_LINES)
 
 
-def generate_proxy_section(relay_interface_name: str) -> str:
-    return "\n".join(
-        [
-            *MAC_INTERFACE_NOTES,
-            f"{RELAY_INTERFACE_POLICY} = direct,interface={relay_interface_name},allow-other-interface=false,dns-follow-interface=true",
-            "",
-        ]
-    )
+def relay_interface_policy(interface_name: str) -> str:
+    return f"📶 中转 {interface_name}"
+
+
+def relay_interface_policies() -> list[str]:
+    return [relay_interface_policy(interface_name) for interface_name in RELAY_INTERFACE_NAMES]
+
+
+def generate_proxy_section(interface_name: str | None) -> str:
+    lines = [*MAC_INTERFACE_NOTES]
+    if interface_name:
+        lines.append(
+            f"{DEFAULT_INTERFACE_POLICY} = direct,{interface_modifier(interface_name)}"
+        )
+    for relay_interface_name in RELAY_INTERFACE_NAMES:
+        lines.append(
+            f"{relay_interface_policy(relay_interface_name)} = direct,"
+            f"{interface_modifier(relay_interface_name)}"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def generate_host_section() -> str:
@@ -434,70 +501,124 @@ def generate_header_rewrite_section() -> str:
 def generate_relay_choices(relay_url: str | None) -> list[str]:
     choices: list[str] = []
     if relay_url:
-        choices.extend(("🇭🇰 中转香港", "🇸🇬 中转新加坡", "🇺🇲 中转美国", "🇯🇵 中转日本"))
-    choices.extend((CELLULAR_POLICY_GROUP, RELAY_INTERFACE_POLICY, "DIRECT"))
+        choices.extend(
+            (
+                "🇭🇰 香港中转",
+                "🇸🇬 新加坡中转",
+                "🇺🇲 美国中转",
+                "🇯🇵 日本中转",
+            )
+        )
+    choices.append(CELLULAR_POLICY_GROUP)
+    choices.append(RELAY_INTERFACE_POLICY)
+    choices.append("DIRECT")
     return choices
 
 
+def maybe_hidden(hide_node_groups: bool) -> list[str]:
+    return ["hidden=true"] if hide_node_groups else []
+
+
+def always_hidden() -> list[str]:
+    return ["hidden=true"]
+
+
+def should_hide_node_group(group_name: str, hide_node_groups: bool) -> bool:
+    if not hide_node_groups:
+        return False
+    if group_name in {LANDING_PROVIDER_GROUP, "🚀 默认节点"}:
+        return False
+    return (
+        group_name.endswith("节点")
+        or group_name.endswith("中转")
+        or group_name == RELAY_PROVIDER_GROUP
+    )
+
+
 def generate_provider_groups(
-    relay_url: str | None, proxy_url: str, interface_name: str
+    relay_url: str | None,
+    proxy_url: str,
+    interface_name: str | None,
+    hide_node_groups: bool,
 ) -> str:
+    proxy_modifier = external_policy_modifier(interface_name, underlying_proxy="🔀 中转代理")
+    proxy_fields = [
+        f"{LANDING_PROVIDER_GROUP} = select",
+        f"policy-path={proxy_url}",
+        *always_hidden(),
+    ]
+    if proxy_modifier:
+        proxy_fields.append(proxy_modifier)
     return "\n".join(
         [
             "# External policies. Replace placeholder URLs locally or pass --proxy-url/--relay-url.",
-            "🔀 中转 = select," + ",".join(generate_relay_choices(relay_url)),
-            f"{CELLULAR_POLICY_GROUP} = select,CELLULAR-ONLY,hidden=true",
-            (
-                f"{LANDING_PROVIDER_GROUP} = select,"
-                f"policy-path={proxy_url},"
-                "hidden=true,"
-                f'external-policy-modifier="underlying-proxy=🔀 中转,{interface_modifier(interface_name)}"'
+            "🔀 中转代理 = select,"
+            + ",".join(generate_relay_choices(relay_url)),
+            ",".join(
+                [
+                    f"{CELLULAR_POLICY_GROUP} = select",
+                    "CELLULAR-ONLY",
+                    *always_hidden(),
+                ]
             ),
+            f"{RELAY_INTERFACE_POLICY} = select,"
+            + ",".join(relay_interface_policies()),
+            ",".join(proxy_fields),
             "",
         ]
     )
 
 
-def generate_relay_groups(relay_url: str, interface_name: str) -> str:
+def generate_relay_groups(
+    relay_url: str, interface_name: str | None, hide_node_groups: bool
+) -> str:
     exclude_prefix = f"(?i)^(?!.*({EXCLUDED_NODE_PATTERN})).*"
+    hidden_fields = maybe_hidden(hide_node_groups)
+    relay_fields = [
+        f"{RELAY_PROVIDER_GROUP} = select",
+        f"policy-path={relay_url}",
+        *always_hidden(),
+    ]
+    relay_modifier = external_policy_modifier(interface_name)
+    if relay_modifier:
+        relay_fields.append(relay_modifier)
     return "\n".join(
         [
+            ",".join(relay_fields),
             (
-                f"{RELAY_PROVIDER_GROUP} = select,"
-                f"policy-path={relay_url},"
-                "hidden=true,"
-                f'external-policy-modifier="{interface_modifier(interface_name)}"'
-            ),
-            (
-                "🇭🇰 中转香港 = url-test,"
+                "🇭🇰 香港中转 = url-test,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
                 "url=http://www.gstatic.com/generate_204,"
                 "interval=300,"
                 "tolerance=50,"
+                f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(香港|港|HK|Hong Kong).*$"'
             ),
             (
-                "🇸🇬 中转新加坡 = url-test,"
+                "🇸🇬 新加坡中转 = url-test,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
                 "url=http://www.gstatic.com/generate_204,"
                 "interval=300,"
                 "tolerance=50,"
+                f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(新加坡|坡|狮城|SG|Singapore).*$"'
             ),
             (
-                "🇺🇲 中转美国 = url-test,"
+                "🇺🇲 美国中转 = url-test,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
                 "url=http://www.gstatic.com/generate_204,"
                 "interval=300,"
                 "tolerance=50,"
+                f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(美国|US|United States|洛杉矶|西雅图|硅谷|圣何塞).*$"'
             ),
             (
-                "🇯🇵 中转日本 = url-test,"
+                "🇯🇵 日本中转 = url-test,"
                 f"include-other-group={RELAY_PROVIDER_GROUP},"
                 "url=http://www.gstatic.com/generate_204,"
                 "interval=300,"
                 "tolerance=50,"
+                f"{','.join(hidden_fields) + ',' if hidden_fields else ''}"
                 f'policy-regex-filter="{exclude_prefix}(日本|东京|大阪|泉日|埼玉|JP|Japan).*$"'
             ),
         ]
@@ -505,18 +626,28 @@ def generate_relay_groups(relay_url: str, interface_name: str) -> str:
 
 
 def generate_proxy_groups(
-    relay_url: str | None, proxy_url: str, interface_name: str
+    relay_url: str | None,
+    proxy_url: str,
+    interface_name: str | None,
+    hide_node_groups: bool,
 ) -> str:
     lines = [
         "# Generated from full.ini custom_proxy_group by scripts/generate_surge.py.",
-        generate_provider_groups(relay_url, proxy_url, interface_name).rstrip(),
-        *[convert_proxy_group(group, relay_url) for group in parse_proxy_groups()],
+        generate_provider_groups(
+            relay_url, proxy_url, interface_name, hide_node_groups
+        ).rstrip(),
+        *[
+            convert_proxy_group(group, relay_url, interface_name, hide_node_groups)
+            for group in parse_proxy_groups()
+        ],
     ]
     if relay_url:
         lines.extend(
             [
                 "# Relay subscription groups are placed at the bottom by design.",
-                generate_relay_groups(relay_url, interface_name).rstrip(),
+                generate_relay_groups(
+                    relay_url, interface_name, hide_node_groups
+                ).rstrip(),
             ]
         )
     lines.append("")
@@ -557,8 +688,8 @@ def generate_rules(
 def generate_config(
     relay_url: str | None,
     proxy_url: str,
-    interface_name: str,
-    relay_interface_name: str,
+    interface_name: str | None,
+    hide_node_groups: bool,
     rulesets: list[RuleSet],
     converted_rulesets: dict[RuleSet, ConvertedRuleSet],
 ) -> str:
@@ -571,10 +702,12 @@ def generate_config(
             generate_general_section(),
             "",
             "[Proxy]",
-            generate_proxy_section(relay_interface_name).rstrip(),
+            generate_proxy_section(interface_name).rstrip(),
             "",
             "[Proxy Group]",
-            generate_proxy_groups(relay_url, proxy_url, interface_name).rstrip(),
+            generate_proxy_groups(
+                relay_url, proxy_url, interface_name, hide_node_groups
+            ).rstrip(),
             "",
             "[Rule]",
             generate_rules(rulesets, converted_rulesets).rstrip(),
@@ -617,13 +750,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--interface",
-        default=DEFAULT_INTERFACE,
-        help="Default network interface injected into external subscription policies on Surge Mac.",
+        default=None,
+        help="Optional default egress network interface injected into external policies and exposed as a selectable direct policy on Surge Mac.",
     )
     parser.add_argument(
-        "--relay-interface",
-        default=DEFAULT_RELAY_INTERFACE,
-        help="Network interface used by the selectable direct relay policy on Surge Mac.",
+        "--hide-node-groups",
+        "--hide-nodes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Hide bottom regional node groups and relay node groups by default. Use --no-hide-node-groups to show them.",
     )
     parser.add_argument(
         "--refresh-rules",
@@ -653,7 +788,7 @@ def main() -> None:
             args.relay_url,
             args.proxy_url,
             args.interface,
-            args.relay_interface,
+            args.hide_node_groups,
             rulesets,
             converted_rulesets,
         ),
