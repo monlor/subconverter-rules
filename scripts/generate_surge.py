@@ -1,0 +1,665 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import re
+import time
+from dataclasses import dataclass
+from http.client import IncompleteRead
+from pathlib import Path
+from urllib.error import URLError
+from urllib.request import Request, urlopen
+
+ROOT = Path(__file__).resolve().parents[1]
+FULL_INI = ROOT / "full.ini"
+DEFAULT_OUTPUT = ROOT / "surge" / "full.conf"
+AGENT_TEST_OUTPUT = ROOT / "surge" / "full.local.conf"
+RULES_OUTPUT_DIR = ROOT / "surge" / "rules"
+RAW_REPO_URL = "https://raw.githubusercontent.com/monlor/subconverter-rules/main/"
+GH_PROXY_RAW_REPO_URL = "https://gh.monlor.com/" + RAW_REPO_URL
+SURGE_RULES_URL = GH_PROXY_RAW_REPO_URL + "surge/rules/"
+PROXY_URL_PLACEHOLDER = "https://example.invalid/PROXY_SURGE_URL"
+LANDING_PROVIDER_GROUP = "代理节点"
+RELAY_PROVIDER_GROUP = "中转节点"
+CELLULAR_POLICY_GROUP = "📱 蜂窝流量"
+RELAY_INTERFACE_POLICY = "📶 中转网卡"
+DEFAULT_INTERFACE = "en0"
+DEFAULT_RELAY_INTERFACE = "en10"
+EXCLUDED_NODE_PATTERN = "家宽|5G网络|星链|住宅|游戏|抓包|HOME|GAME|FORWARD|实验"
+MAC_INTERFACE_NOTES = (
+    "# Common macOS interfaces:",
+    "# en0: usually Wi-Fi or the primary default interface",
+    "# en1/en2/en3: often Thunderbolt bridge or additional built-in/virtual Ethernet interfaces",
+    "# en4/en5/en6/en7/en8/en9/en10: often USB-C Ethernet, USB tethering, or extra adapters",
+    "# bridge0: bridge interface, commonly used by virtualization or Thunderbolt bridge",
+    "# awdl0/llw0: Apple Wireless Direct Link interfaces, not recommended as egress",
+    "# utun0/utun1/...: VPN/tunnel interfaces, usable only when you intentionally bind a tunnel",
+    "# lo0: loopback, not usable as internet egress",
+)
+GENERAL_LINES = (
+    "skip-proxy = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.1, localhost, *.local",
+    "ipv6 = true",
+    "ipv6-vif = auto",
+    "external-controller-access = change@0.0.0.0:6170",
+    "http-api = change@0.0.0.0:6171",
+    "http-api-tls = false",
+    "http-api-web-dashboard = true",
+    "allow-wifi-access = true",
+    "allow-hotspot-access = true",
+    "include-cellular-services = true",
+    "include-all-networks = true",
+    "include-local-networks = false",
+    "http-listen = 0.0.0.0",
+    "socks5-listen = 0.0.0.0",
+    "test-timeout = 10",
+    "loglevel = notify",
+    "use-local-host-item-for-proxy = true",
+    "include-apns = true",
+    "show-error-page-for-reject = true",
+    "read-etc-hosts = true",
+    (
+        "always-real-ip = *.srv.nintendo.net, *.stun.playstation.net, xbox.*.microsoft.com, "
+        "*.xboxlive.com, *.battlenet.com.cn, *.battlenet.com, *.blzstatic.cn, *.battle.net, "
+        "stun.l.google.com, stun1.l.google.com, stun2.l.google.com, stun3.l.google.com, "
+        "stun4.l.google.com, derp*.tailscale.com, derp*-all.tailscale.com"
+    ),
+    "exclude-simple-hostnames = true",
+    "udp-policy-not-supported-behaviour = REJECT",
+    "proxy-restricted-to-lan = false",
+)
+HOST_LINES = (
+    "apple.com = server:system",
+    "*.apple.com = server:system",
+    "*.cdn-apple.com = server:system",
+    "icloud.com = server:system",
+    "*.icloud.com = server:system",
+    "icloud-content.com = server:system",
+    "*.icloud-content.com = server:system",
+    "epdg.epc.mnc002.mcc262.pub.3gppnetwork.org = server:84.200.69.80",
+)
+HEADER_REWRITE_LINES = (
+    "# 强制将发往百度网盘 CDN 节点的请求 User-Agent 替换为官方客户端标识",
+    "# http-request ^https?:\\/\\/.*\\.baidupcs\\.com header-replace User-Agent pan.baidu.com",
+    "# 兼容部分小写 header 的情况",
+    "# http-request ^https?:\\/\\/.*\\.baidupcs\\.com header-replace user-agent pan.baidu.com",
+)
+
+RULE_TYPE_ALIASES = {
+    "DST-PORT": "DEST-PORT",
+    "SRC-IP-CIDR": "SRC-IP",
+}
+
+SUPPORTED_RULE_TYPES = {
+    "AND",
+    "DOMAIN",
+    "DOMAIN-KEYWORD",
+    "DOMAIN-SET",
+    "DOMAIN-SUFFIX",
+    "DOMAIN-WILDCARD",
+    "DEST-PORT",
+    "GEOIP",
+    "IN-PORT",
+    "IP-ASN",
+    "IP-CIDR",
+    "IP-CIDR6",
+    "NOT",
+    "OR",
+    "PROCESS-NAME",
+    "PROTOCOL",
+    "RULE-SET",
+    "SCRIPT",
+    "SRC-IP",
+    "SRC-PORT",
+    "USER-AGENT",
+    "URL-REGEX",
+}
+
+
+@dataclass(frozen=True)
+class RuleSet:
+    policy: str
+    target: str
+    options: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProxyGroup:
+    name: str
+    group_type: str
+    items: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ConvertedRuleSet:
+    ruleset: RuleSet
+    target: str
+
+
+def parse_full_ini() -> list[RuleSet]:
+    rulesets: list[RuleSet] = []
+    for raw_line in FULL_INI.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith((";", "#")):
+            continue
+        if not line.startswith("ruleset="):
+            continue
+
+        payload = line.removeprefix("ruleset=")
+        parts = [part.strip() for part in payload.split(",") if part.strip()]
+        if len(parts) < 2:
+            continue
+        target = parts[1]
+        options = tuple(parts[2:])
+        if target.startswith("[]"):
+            target = ",".join(parts[1:])
+            options = ()
+        rulesets.append(RuleSet(policy=parts[0], target=target, options=options))
+    return rulesets
+
+
+def parse_proxy_groups() -> list[ProxyGroup]:
+    groups: list[ProxyGroup] = []
+    for raw_line in FULL_INI.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith((";", "#")):
+            continue
+        if not line.startswith("custom_proxy_group="):
+            continue
+
+        payload = line.removeprefix("custom_proxy_group=")
+        parts = tuple(part.strip() for part in payload.split("`"))
+        if len(parts) < 2:
+            continue
+        groups.append(ProxyGroup(name=parts[0], group_type=parts[1], items=parts[2:]))
+    return groups
+
+
+def source_path_for_url(url: str) -> Path | None:
+    normalized_url = url.removeprefix("https://gh.monlor.com/")
+    for prefix in (RAW_REPO_URL, GH_PROXY_RAW_REPO_URL):
+        if normalized_url.startswith(prefix):
+            relative = normalized_url.removeprefix(prefix)
+            path = ROOT / relative
+            if path.is_file():
+                return path
+    return None
+
+
+def fetch_ruleset(url: str) -> str:
+    local_path = source_path_for_url(url)
+    if local_path:
+        return local_path.read_text(encoding="utf-8")
+
+    candidate_urls = [url.removeprefix("https://gh.monlor.com/")]
+    if candidate_urls[0] != url:
+        candidate_urls.append(url)
+
+    last_error: Exception | None = None
+    for fetch_url in candidate_urls:
+        for attempt in range(3):
+            request = Request(
+                fetch_url, headers={"User-Agent": "subconverter-rules-surge-generator"}
+            )
+            try:
+                with urlopen(request, timeout=30) as response:
+                    return response.read().decode("utf-8")
+            except (OSError, IncompleteRead) as exc:
+                last_error = exc
+                if attempt < 2:
+                    time.sleep(1)
+
+    if last_error:
+        raise URLError(last_error)
+    raise URLError(f"failed to fetch {url}")
+
+
+def ruleset_filename(url: str, index: int) -> str:
+    normalized_url = url.removeprefix("https://gh.monlor.com/")
+    if normalized_url.startswith(RAW_REPO_URL):
+        relative = normalized_url.removeprefix(RAW_REPO_URL)
+        stem = Path(relative.removeprefix("rules/")).name
+    else:
+        stem = Path(normalized_url).name
+    filename = re.sub(r"[^0-9A-Za-z._-]+", "_", stem).strip("._-").lower()
+    if not filename:
+        filename = f"ruleset_{index}"
+    if not filename.endswith((".list", ".ini", ".conf", ".txt")):
+        filename += ".list"
+    return f"{index:02d}_{filename}"
+
+
+def clean_yaml_rule_line(line: str) -> str:
+    stripped = line.strip()
+    if stripped.startswith("- "):
+        stripped = stripped[2:].strip()
+    if stripped[:1] in {"'", '"'} and stripped[-1:] == stripped[:1]:
+        stripped = stripped[1:-1].strip()
+    return stripped
+
+
+def convert_ruleset_line(raw_line: str) -> str | None:
+    line = clean_yaml_rule_line(raw_line)
+    if not line or line.startswith(("#", ";")):
+        return line if line.startswith("#") else None
+    if line in {"payload:", "rules:"}:
+        return None
+
+    parts = [part.strip() for part in line.split(",")]
+    if not parts:
+        return None
+
+    rule_type = RULE_TYPE_ALIASES.get(parts[0].upper(), parts[0].upper())
+    if rule_type not in SUPPORTED_RULE_TYPES:
+        return line
+
+    converted_parts = [rule_type, *parts[1:]]
+    return ",".join(converted_parts)
+
+
+def convert_ruleset_content(content: str) -> str:
+    lines: list[str] = []
+    for raw_line in content.splitlines():
+        converted = convert_ruleset_line(raw_line)
+        if converted is not None:
+            lines.append(converted)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_converted_rulesets(
+    rulesets: list[RuleSet], refresh_rules: bool
+) -> dict[RuleSet, ConvertedRuleSet]:
+    RULES_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if refresh_rules:
+        for path in RULES_OUTPUT_DIR.iterdir():
+            if path.is_file():
+                path.unlink()
+
+    converted: dict[RuleSet, ConvertedRuleSet] = {}
+    used_filenames: set[str] = set()
+    url_rulesets = [
+        ruleset for ruleset in rulesets if not ruleset.target.startswith("[]")
+    ]
+
+    for index, ruleset in enumerate(url_rulesets, start=1):
+        filename = ruleset_filename(ruleset.target, index)
+        while filename in used_filenames:
+            filename = f"{index:02d}_{filename}"
+        used_filenames.add(filename)
+
+        output_path = RULES_OUTPUT_DIR / filename
+        if refresh_rules or not output_path.exists():
+            try:
+                source = fetch_ruleset(ruleset.target)
+            except URLError as exc:
+                raise RuntimeError(
+                    f"failed to fetch ruleset: {ruleset.target}"
+                ) from exc
+            output_path.write_text(convert_ruleset_content(source), encoding="utf-8")
+
+        converted[ruleset] = ConvertedRuleSet(
+            ruleset=ruleset,
+            target=SURGE_RULES_URL + filename,
+        )
+
+    return converted
+
+
+def quote_param(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def convert_group_item(item: str) -> str | None:
+    if not item:
+        return None
+    if item.startswith("[]"):
+        return item.removeprefix("[]")
+    return item
+
+
+def parsed_group_items(group: ProxyGroup) -> tuple[list[str], list[str]]:
+    policies: list[str] = []
+    regex_filters: list[str] = []
+    for item in group.items:
+        converted = convert_group_item(item)
+        if not converted:
+            continue
+        if item.startswith("[]"):
+            policies.append(converted)
+        else:
+            regex_filters.append(converted)
+    return policies, regex_filters
+
+
+def move_non_default_direct_to_bottom(policies: list[str]) -> list[str]:
+    if not policies or policies[0] == "DIRECT" or "DIRECT" not in policies:
+        return policies
+    return [policy for policy in policies if policy != "DIRECT"] + ["DIRECT"]
+
+
+def parse_test_options(group: ProxyGroup) -> tuple[str, str, str]:
+    url = (
+        group.items[1]
+        if len(group.items) > 1
+        else "http://www.gstatic.com/generate_204"
+    )
+    interval = "300"
+    tolerance = ""
+    if len(group.items) > 2:
+        test_parts = [part.strip() for part in group.items[2].split(",")]
+        if len(test_parts) > 0 and test_parts[0]:
+            interval = test_parts[0]
+        if len(test_parts) > 2 and test_parts[2]:
+            tolerance = test_parts[2]
+    return url, interval, tolerance
+
+
+def convert_select_proxy_group(group: ProxyGroup, relay_url: str | None) -> str:
+    policies, regex_filters = parsed_group_items(group)
+    policies = move_non_default_direct_to_bottom(policies)
+    fields = [group.group_type]
+    fields.extend(policies)
+    if not policies and group.name != "🚀 默认":
+        included_groups = [LANDING_PROVIDER_GROUP]
+        if relay_url and group.name == "🚀 手动":
+            included_groups.append(RELAY_PROVIDER_GROUP)
+        if len(included_groups) == 1:
+            fields.append(f"include-other-group={included_groups[0]}")
+        else:
+            fields.append(
+                f"include-other-group={quote_param(','.join(included_groups))}"
+            )
+        for regex_filter in regex_filters:
+            fields.append(f"policy-regex-filter={quote_param(regex_filter)}")
+    return f"{group.name} = {','.join(fields)}"
+
+
+def convert_external_proxy_group(group: ProxyGroup) -> str:
+    regex = group.items[0] if len(group.items) > 0 else ""
+    url, interval, tolerance = parse_test_options(group)
+    fields = [
+        group.group_type,
+        f"include-other-group={LANDING_PROVIDER_GROUP}",
+        f"url={url}",
+        f"interval={interval}",
+    ]
+    if tolerance:
+        fields.append(f"tolerance={tolerance}")
+    if regex:
+        fields.append(f"policy-regex-filter={quote_param(regex)}")
+    return f"{group.name} = {','.join(fields)}"
+
+
+def convert_proxy_group(group: ProxyGroup, relay_url: str | None = None) -> str:
+    if group.group_type == "select":
+        return convert_select_proxy_group(group, relay_url)
+
+    if group.group_type in {"url-test", "fallback", "load-balance", "random"}:
+        return convert_external_proxy_group(group)
+
+    fields = [group.group_type]
+    for item in group.items:
+        converted = convert_group_item(item)
+        if converted:
+            fields.append(converted)
+    return f"{group.name} = {','.join(fields)}"
+
+
+def interface_modifier(interface_name: str) -> str:
+    return f"interface={interface_name},allow-other-interface=false,dns-follow-interface=true"
+
+
+def generate_general_section() -> str:
+    return "\n".join(GENERAL_LINES)
+
+
+def generate_proxy_section(relay_interface_name: str) -> str:
+    return "\n".join(
+        [
+            *MAC_INTERFACE_NOTES,
+            f"{RELAY_INTERFACE_POLICY} = direct,interface={relay_interface_name},allow-other-interface=false,dns-follow-interface=true",
+            "",
+        ]
+    )
+
+
+def generate_host_section() -> str:
+    return "\n".join(HOST_LINES)
+
+
+def generate_header_rewrite_section() -> str:
+    return "\n".join(HEADER_REWRITE_LINES)
+
+
+def generate_relay_choices(relay_url: str | None) -> list[str]:
+    choices: list[str] = []
+    if relay_url:
+        choices.extend(("🇭🇰 中转香港", "🇸🇬 中转新加坡", "🇺🇲 中转美国", "🇯🇵 中转日本"))
+    choices.extend((CELLULAR_POLICY_GROUP, RELAY_INTERFACE_POLICY, "DIRECT"))
+    return choices
+
+
+def generate_provider_groups(
+    relay_url: str | None, proxy_url: str, interface_name: str
+) -> str:
+    return "\n".join(
+        [
+            "# External policies. Replace placeholder URLs locally or pass --proxy-url/--relay-url.",
+            "🔀 中转 = select," + ",".join(generate_relay_choices(relay_url)),
+            f"{CELLULAR_POLICY_GROUP} = select,CELLULAR-ONLY,hidden=true",
+            (
+                f"{LANDING_PROVIDER_GROUP} = select,"
+                f"policy-path={proxy_url},"
+                "hidden=true,"
+                f'external-policy-modifier="underlying-proxy=🔀 中转,{interface_modifier(interface_name)}"'
+            ),
+            "",
+        ]
+    )
+
+
+def generate_relay_groups(relay_url: str, interface_name: str) -> str:
+    exclude_prefix = f"(?i)^(?!.*({EXCLUDED_NODE_PATTERN})).*"
+    return "\n".join(
+        [
+            (
+                f"{RELAY_PROVIDER_GROUP} = select,"
+                f"policy-path={relay_url},"
+                "hidden=true,"
+                f'external-policy-modifier="{interface_modifier(interface_name)}"'
+            ),
+            (
+                "🇭🇰 中转香港 = url-test,"
+                f"include-other-group={RELAY_PROVIDER_GROUP},"
+                "url=http://www.gstatic.com/generate_204,"
+                "interval=300,"
+                "tolerance=50,"
+                f'policy-regex-filter="{exclude_prefix}(香港|港|HK|Hong Kong).*$"'
+            ),
+            (
+                "🇸🇬 中转新加坡 = url-test,"
+                f"include-other-group={RELAY_PROVIDER_GROUP},"
+                "url=http://www.gstatic.com/generate_204,"
+                "interval=300,"
+                "tolerance=50,"
+                f'policy-regex-filter="{exclude_prefix}(新加坡|坡|狮城|SG|Singapore).*$"'
+            ),
+            (
+                "🇺🇲 中转美国 = url-test,"
+                f"include-other-group={RELAY_PROVIDER_GROUP},"
+                "url=http://www.gstatic.com/generate_204,"
+                "interval=300,"
+                "tolerance=50,"
+                f'policy-regex-filter="{exclude_prefix}(美国|US|United States|洛杉矶|西雅图|硅谷|圣何塞).*$"'
+            ),
+            (
+                "🇯🇵 中转日本 = url-test,"
+                f"include-other-group={RELAY_PROVIDER_GROUP},"
+                "url=http://www.gstatic.com/generate_204,"
+                "interval=300,"
+                "tolerance=50,"
+                f'policy-regex-filter="{exclude_prefix}(日本|东京|大阪|泉日|埼玉|JP|Japan).*$"'
+            ),
+        ]
+    )
+
+
+def generate_proxy_groups(
+    relay_url: str | None, proxy_url: str, interface_name: str
+) -> str:
+    lines = [
+        "# Generated from full.ini custom_proxy_group by scripts/generate_surge.py.",
+        generate_provider_groups(relay_url, proxy_url, interface_name).rstrip(),
+        *[convert_proxy_group(group, relay_url) for group in parse_proxy_groups()],
+    ]
+    if relay_url:
+        lines.extend(
+            [
+                "# Relay subscription groups are placed at the bottom by design.",
+                generate_relay_groups(relay_url, interface_name).rstrip(),
+            ]
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def convert_ruleset(
+    ruleset: RuleSet, converted_rulesets: dict[RuleSet, ConvertedRuleSet]
+) -> str:
+    policy = ruleset.policy
+    target = ruleset.target
+    if target.startswith("[]"):
+        inline_rule = target.removeprefix("[]")
+        rule_parts = [part.strip() for part in inline_rule.split(",") if part.strip()]
+        rule_type = RULE_TYPE_ALIASES.get(rule_parts[0].upper(), rule_parts[0].upper())
+        if rule_type == "FINAL":
+            return f"FINAL,{policy}"
+        return ",".join([rule_type, *rule_parts[1:], policy])
+    target = converted_rulesets[ruleset].target
+    options = [option for option in ruleset.options if option]
+    return ",".join(["RULE-SET", target, policy, *options])
+
+
+def generate_rules(
+    rulesets: list[RuleSet], converted_rulesets: dict[RuleSet, ConvertedRuleSet]
+) -> str:
+    rules: list[str] = [
+        "# Generated from full.ini by scripts/generate_surge.py.",
+        "# Keeps the same enabled ruleset order and policy names as full.ini.",
+        "# URL rulesets point to converted Surge-compatible files under surge/rules/.",
+        "",
+    ]
+    rules.extend(convert_ruleset(rule, converted_rulesets) for rule in rulesets)
+    rules.append("")
+    return "\n".join(rules)
+
+
+def generate_config(
+    relay_url: str | None,
+    proxy_url: str,
+    interface_name: str,
+    relay_interface_name: str,
+    rulesets: list[RuleSet],
+    converted_rulesets: dict[RuleSet, ConvertedRuleSet],
+) -> str:
+    return "\n".join(
+        [
+            "#!name=subconverter-rules Surge",
+            "#!desc=Generated from full.ini. One subscription is relay, one subscription is landing proxy.",
+            "",
+            "[General]",
+            generate_general_section(),
+            "",
+            "[Proxy]",
+            generate_proxy_section(relay_interface_name).rstrip(),
+            "",
+            "[Proxy Group]",
+            generate_proxy_groups(relay_url, proxy_url, interface_name).rstrip(),
+            "",
+            "[Rule]",
+            generate_rules(rulesets, converted_rulesets).rstrip(),
+            "",
+            "[Host]",
+            generate_host_section(),
+            "",
+            "[Header Rewrite]",
+            generate_header_rewrite_section(),
+            "",
+        ]
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate Surge config from full.ini.")
+    parser.add_argument(
+        "--relay-url",
+        "--airport-a-url",
+        dest="relay_url",
+        default=None,
+        help="Optional Surge-compatible policy list URL for relay nodes. If omitted, relay subscription groups are not generated.",
+    )
+    parser.add_argument(
+        "--proxy-url",
+        "--airport-b-url",
+        dest="proxy_url",
+        default=PROXY_URL_PLACEHOLDER,
+        help="Surge-compatible policy list URL for landing proxy nodes.",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Output Surge config path. Defaults to surge/full.conf, or surge/full.local.conf with --agent-test.",
+    )
+    parser.add_argument(
+        "--agent-test",
+        action="store_true",
+        help="Write to surge/full.local.conf by default for agent validation runs.",
+    )
+    parser.add_argument(
+        "--interface",
+        default=DEFAULT_INTERFACE,
+        help="Default network interface injected into external subscription policies on Surge Mac.",
+    )
+    parser.add_argument(
+        "--relay-interface",
+        default=DEFAULT_RELAY_INTERFACE,
+        help="Network interface used by the selectable direct relay policy on Surge Mac.",
+    )
+    parser.add_argument(
+        "--refresh-rules",
+        action="store_true",
+        help="Download and reconvert all URL rulesets. By default, existing converted rules are reused.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    output = (
+        Path(args.output)
+        if args.output
+        else (AGENT_TEST_OUTPUT if args.agent_test else DEFAULT_OUTPUT)
+    )
+    if not output.is_absolute():
+        output = ROOT / output
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    rulesets = parse_full_ini()
+    converted_rulesets = write_converted_rulesets(
+        rulesets, refresh_rules=args.refresh_rules
+    )
+    output.write_text(
+        generate_config(
+            args.relay_url,
+            args.proxy_url,
+            args.interface,
+            args.relay_interface,
+            rulesets,
+            converted_rulesets,
+        ),
+        encoding="utf-8",
+    )
+
+
+if __name__ == "__main__":
+    main()
