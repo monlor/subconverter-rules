@@ -326,7 +326,12 @@ def convert_select_proxy_group(
     policies = move_non_default_direct_to_bottom(policies)
     fields = [group.group_type]
     fields.extend(policies)
-    if not policies and group.name != "🚀 默认节点":
+    should_include_filtered_nodes = (
+        bool(regex_filters)
+        and group.name != "🚀 默认节点"
+        and (not policies or group.name in FULL_NODE_SELECT_GROUPS)
+    )
+    if should_include_filtered_nodes:
         included_groups = [LANDING_PROVIDER_GROUP]
         if relay_url and group.name in FULL_NODE_SELECT_GROUPS:
             included_groups.append(RELAY_PROVIDER_GROUP)

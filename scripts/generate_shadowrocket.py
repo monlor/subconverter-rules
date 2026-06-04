@@ -19,6 +19,7 @@ RULES_OUTPUT_DIR = ROOT / "shadowrocket" / "rules"
 RAW_REPO_URL = "https://raw.githubusercontent.com/monlor/subconverter-rules/main/"
 GH_PROXY_RAW_REPO_URL = "https://gh.monlor.com/" + RAW_REPO_URL
 SHADOWROCKET_RULES_URL = GH_PROXY_RAW_REPO_URL + "shadowrocket/rules/"
+FULL_NODE_SELECT_GROUPS = {"🚀 手动选择", "📶 VoWiFi"}
 
 RULE_TYPE_ALIASES = {
     "DEST-PORT": "DST-PORT",
@@ -263,7 +264,7 @@ def convert_proxy_group(group: ProxyGroup) -> str:
             policies.insert(0, "PROXY")
 
         fields = [group.group_type, *policies]
-        if not policies:
+        if not policies or group.name in FULL_NODE_SELECT_GROUPS:
             fields.extend(f"policy-regex-filter={regex_filter}" for regex_filter in regex_filters)
         return f"{group.name} = {','.join(fields)}"
 
