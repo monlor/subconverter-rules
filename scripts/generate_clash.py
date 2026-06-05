@@ -27,7 +27,7 @@ LANDING_PROVIDER_GROUP = "代理节点"
 RELAY_PROVIDER_GROUP = "中转节点"
 RELAY_DIALER_GROUP = "🔀 中转代理"
 RELAY_INTERFACE_POLICY = "↔️ 中转网卡"
-SYSTEM_DIRECT_GROUP = "🎯 系统直连"
+DIRECT_POLICY = "DIRECT"
 DEFAULT_HEALTH_CHECK_URL = "http://www.gstatic.com/generate_204"
 CLASH_INTERFACE_NOTES = (
     "# Common interface names for selectable chaining:",
@@ -192,8 +192,6 @@ def should_hide_node_group(group_name: str, hide_node_groups: bool) -> bool:
         return False
     if group_name in {LANDING_PROVIDER_GROUP, "🚀 默认节点"}:
         return False
-    if group_name == SYSTEM_DIRECT_GROUP:
-        return hide_node_groups
     return (
         group_name.endswith("节点")
         or group_name.endswith("中转")
@@ -287,13 +285,6 @@ def generate_provider_group(
     return lines
 
 
-def generate_system_direct_group(hide_node_groups: bool) -> list[str]:
-    lines = group_header(SYSTEM_DIRECT_GROUP, "select")
-    append_sequence(lines, "proxies", ["DIRECT"])
-    append_group_common(lines, hidden=hide_node_groups)
-    return lines
-
-
 def generate_url_test_group(
     name: str,
     provider: str,
@@ -326,7 +317,7 @@ def generate_relay_choices(relay_url: str | None) -> list[str]:
         "🇺🇲 美国中转",
         "🇯🇵 日本中转",
         RELAY_INTERFACE_POLICY,
-        SYSTEM_DIRECT_GROUP,
+        DIRECT_POLICY,
     ]
 
 
@@ -362,30 +353,16 @@ def generate_relay_region_groups(hide_node_groups: bool) -> list[list[str]]:
 
 
 def move_non_default_direct_to_bottom(policies: list[str]) -> list[str]:
-    direct_policies = {"DIRECT", SYSTEM_DIRECT_GROUP}
-    if not policies or policies[0] in direct_policies:
+    if not policies or policies[0] == DIRECT_POLICY:
         return policies
-    trailing = [policy for policy in policies if policy in direct_policies]
+    trailing = [policy for policy in policies if policy == DIRECT_POLICY]
     if not trailing:
         return policies
-    return [policy for policy in policies if policy not in direct_policies] + trailing
-
-
-def replace_direct_policy(policies: list[str]) -> list[str]:
-    return [
-        SYSTEM_DIRECT_GROUP if policy == "DIRECT" else policy
-        for policy in policies
-    ]
+    return [policy for policy in policies if policy != DIRECT_POLICY] + trailing
 
 
 def normalize_group_policies(policies: list[str]) -> list[str]:
-    return replace_direct_policy(move_non_default_direct_to_bottom(policies))
-
-
-def normalize_policies_for_group(name: str, policies: list[str]) -> list[str]:
-    if name == SYSTEM_DIRECT_GROUP:
-        return policies
-    return normalize_group_policies(policies)
+    return move_non_default_direct_to_bottom(policies)
 
 
 def generate_proxy_group_lines(
@@ -394,8 +371,6 @@ def generate_proxy_group_lines(
 ) -> str:
     source_groups = parse_proxy_groups()
     groups: list[list[str]] = []
-    if not any(group.name == SYSTEM_DIRECT_GROUP for group in source_groups):
-        groups.append(generate_system_direct_group(hide_node_groups))
     if relay_url:
         relay_selector = group_header(RELAY_DIALER_GROUP, "select")
         append_sequence(relay_selector, "proxies", generate_relay_choices(relay_url))
@@ -413,7 +388,7 @@ def generate_proxy_group_lines(
 
     for group in source_groups:
         policies, regex_filters = parsed_group_items(group)
-        policies = normalize_policies_for_group(group.name, policies)
+        policies = normalize_group_policies(policies)
         if group.group_type == "select":
             groups.append(
                 generate_select_group(
