@@ -92,6 +92,7 @@ rtk python3 scripts/generate_surge.py --refresh-rules
 ```sh
 rtk python3 -m py_compile scripts/generate_shadowrocket.py
 rtk python3 -m py_compile scripts/generate_surge.py
+rtk python3 -m py_compile scripts/generate_clash.py
 ```
 
 - Verify generated output before finalizing:
@@ -101,4 +102,27 @@ rtk python3 -m py_compile scripts/generate_surge.py
   - `surge/full.conf` keeps the same enabled `ruleset=` order and policy names from `full.ini`.
   - `surge/rules/` contains converted ruleset files for all URL rulesets.
   - Surge generated rules preserve `DEST-PORT` and do not use Shadowrocket-only `DST-PORT`.
+  - `clash/full.yaml` keeps the same enabled `ruleset=` order and policy names from `full.ini`.
   - `git diff --check` passes.
+
+## Clash/Mihomo Generation
+
+- After changing `full.ini`, generate the public Clash/Mihomo config with:
+
+```sh
+rtk python3 scripts/generate_clash.py
+```
+
+- Default user-facing Clash output is `clash/full.yaml`.
+- Agent validation or private subscription tests must write to the ignored local output with `--agent-test`:
+
+```sh
+rtk python3 scripts/generate_clash.py \
+  --agent-test \
+  --proxy-url "$PROXY_CLASH_URL" \
+  --relay-url "$RELAY_CLASH_URL"
+```
+
+- `--relay-url` is optional. When set, the landing provider gets `override.dialer-proxy: 🔀 中转代理` and the generated config adds hidden relay provider/region groups.
+- Proxy providers use online `url` fields and intentionally omit local `path`; Mihomo manages provider cache filenames automatically.
+- Clash `↔️ 中转网卡` uses generated `type: direct` proxies with common macOS/iOS, Linux, Android, and Windows interface names. It intentionally omits `utun*` tunnel interfaces.

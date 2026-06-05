@@ -4,4 +4,7 @@ package-lock.json
 package.json
 .spec-workflow
 surge/full.local.conf
+clash/full.local.yaml
 full.conf
+full.yaml
+__pycache__

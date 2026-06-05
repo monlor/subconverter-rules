@@ -9,6 +9,30 @@ https://raw.githubusercontent.com/monlor/subconverter-rules/main/full.ini
 
 ## clash规则
 
+生成 Mihomo/Clash 配置：
+
+```sh
+python3 scripts/generate_clash.py
+```
+
+私有订阅测试写入 `clash/full.local.yaml`，不要提交真实订阅 URL：
+
+```sh
+python3 scripts/generate_clash.py \
+  --agent-test \
+  --proxy-url "$PROXY_CLASH_URL" \
+  --relay-url "$RELAY_CLASH_URL"
+```
+
+`--relay-url` 可选。传入后会通过 Mihomo `dialer-proxy` 生成链式代理；proxy provider 使用在线 `url`，不写本地 `path`。
+
+链式代理的 `↔️ 中转网卡` 会生成常见接口名：
+
+* macOS/iOS：`en0`-`en10`、`bridge0`、`pdp_ip0`
+* Linux：`eth0`、`eth1`、`wlan0`、`wlan1`、`enp0s3`、`enp1s0`、`enp2s0`、`ens3`、`ens18`、`ens33`、`wlp2s0`、`wlp3s0`、`usb0`
+* Android：`wlan0`、`rmnet_data0`、`rmnet_data1`、`ccmni0`、`ccmni1`、`usb0`
+* Windows：`Ethernet`、`Ethernet 2`、`Wi-Fi`、`WLAN`、`以太网`、`以太网 2`
+
 * DOMAIN-SUFFIX：域名后缀匹配
 * DOMAIN：域名匹配
 * DOMAIN-KEYWORD：域名关键字匹配
