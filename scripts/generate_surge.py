@@ -25,6 +25,7 @@ RELAY_PROVIDER_GROUP = "中转节点"
 DEFAULT_INTERFACE_POLICY = "🌐 默认网卡"
 CELLULAR_POLICY_GROUP = "📱 蜂窝流量"
 RELAY_INTERFACE_POLICY = "↔️ 中转网卡"
+SYSTEM_DIRECT_GROUP = "🎯 系统直连"
 FULL_NODE_SELECT_GROUPS = {"🚀 手动选择", "📶 VoWiFi"}
 RELAY_INTERFACE_NAMES = (
     *(f"en{index}" for index in range(11)),
@@ -295,9 +296,13 @@ def parsed_group_items(group: ProxyGroup) -> tuple[list[str], list[str]]:
 
 
 def move_non_default_direct_to_bottom(policies: list[str]) -> list[str]:
-    if not policies or policies[0] == "DIRECT" or "DIRECT" not in policies:
+    direct_policies = {"DIRECT", SYSTEM_DIRECT_GROUP}
+    if not policies or policies[0] in direct_policies:
         return policies
-    return [policy for policy in policies if policy != "DIRECT"] + ["DIRECT"]
+    trailing = [policy for policy in policies if policy in direct_policies]
+    if not trailing:
+        return policies
+    return [policy for policy in policies if policy not in direct_policies] + trailing
 
 
 def parse_test_options(group: ProxyGroup) -> tuple[str, str, str]:
@@ -448,7 +453,7 @@ def generate_relay_choices(relay_url: str | None) -> list[str]:
         )
     choices.append(CELLULAR_POLICY_GROUP)
     choices.append(RELAY_INTERFACE_POLICY)
-    choices.append("DIRECT")
+    choices.append(SYSTEM_DIRECT_GROUP)
     return choices
 
 
@@ -465,6 +470,8 @@ def should_hide_node_group(group_name: str, hide_node_groups: bool) -> bool:
         return False
     if group_name in {LANDING_PROVIDER_GROUP, "🚀 默认节点"}:
         return False
+    if group_name == SYSTEM_DIRECT_GROUP:
+        return hide_node_groups
     return (
         group_name.endswith("节点")
         or group_name.endswith("中转")

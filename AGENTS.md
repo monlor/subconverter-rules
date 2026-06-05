@@ -126,3 +126,4 @@ rtk python3 scripts/generate_clash.py \
 - `--relay-url` is optional. When set, the landing provider gets `override.dialer-proxy: 🔀 中转代理` and the generated config adds hidden relay provider/region groups.
 - Proxy providers use online `url` fields and intentionally omit local `path`; Mihomo manages provider cache filenames automatically.
 - Clash `↔️ 中转网卡` uses generated `type: direct` proxies with common macOS/iOS, Linux, Android, and Windows interface names. It intentionally omits `utun*` tunnel interfaces.
+- `🎯 系统直连` is a `full.ini`-managed global direct group used by Surge, Clash, and Shadowrocket generated outputs. Keep it hidden by default where the target client supports hidden groups.

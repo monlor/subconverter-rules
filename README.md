@@ -24,7 +24,7 @@ python3 scripts/generate_clash.py \
   --relay-url "$RELAY_CLASH_URL"
 ```
 
-`--relay-url` 可选。传入后会通过 Mihomo `dialer-proxy` 生成链式代理；proxy provider 使用在线 `url`，不写本地 `path`。
+`--relay-url` 可选。传入后会通过 Mihomo `dialer-proxy` 生成链式代理；proxy provider 使用在线 `url`，不写本地 `path`。`🎯 系统直连` 是 `full.ini` 管理的全局直连分组，默认隐藏，可用 `--no-hide-node-groups` 显示。
 
 链式代理的 `↔️ 中转网卡` 会生成常见接口名：
 
