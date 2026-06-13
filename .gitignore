@@ -1,10 +1,12 @@
 .DS_Store
 node_modules
 package-lock.json
-package.json
 .spec-workflow
 surge/full.local.conf
 clash/full.local.yaml
 full.conf
 full.yaml
+full.json
 __pycache__
+shadowrocket/worker/node_modules
+shadowrocket/worker/dist
