@@ -1,4 +1,10 @@
 const CACHE_TTL = 86400 * 30;
+const GH_PROXY = 'https://gh.monlor.com/';
+
+/** Strip gh.monlor.com proxy prefix so the Worker fetches GitHub directly. */
+function normalizeUrl(url: string): string {
+  return url.startsWith(GH_PROXY) ? url.slice(GH_PROXY.length) : url;
+}
 
 export async function getSubContent(
   kv: KVNamespace | undefined,
@@ -16,24 +22,25 @@ export async function cachedFetch(
   url: string,
   force = false,
 ): Promise<string | null> {
+  const fetchUrl = normalizeUrl(url);
   let fresh: string | null = null;
   let ok = false;
 
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(fetchUrl);
     if (resp.ok) { fresh = await resp.text(); ok = true; }
   } catch {}
 
   if (ok && fresh !== null) {
     if (kv) {
-      const key = await cacheKey(url);
+      const key = await cacheKey(fetchUrl);
       await kv.put(key, fresh, { expirationTtl: CACHE_TTL });
     }
     return fresh;
   }
 
   if (!force && kv) {
-    const key = await cacheKey(url);
+    const key = await cacheKey(fetchUrl);
     const cached = await kv.get(key);
     if (cached !== null) return cached;
   }

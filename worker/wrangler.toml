@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
 [vars]
-REPO_BASE_URL = "https://gh.monlor.com/https://raw.githubusercontent.com/monlor/subconverter-rules/main/"
+REPO_BASE_URL = "https://raw.githubusercontent.com/monlor/subconverter-rules/main/"
 
 # KV namespace for caching (subscriptions, rulesets, config files)
 # Create with: npx wrangler kv namespace create "CACHE"

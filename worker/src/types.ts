@@ -20,7 +20,7 @@ export const PROXYPASS_UNSUPPORTED = new Set([
 export const EXCLUDED_NODE_PATTERN = '家宽|5G网络|星链|住宅|游戏|抓包|HOME|GAME|FORWARD|实验';
 
 export const DEFAULT_REPO_BASE_URL =
-  'https://gh.monlor.com/https://raw.githubusercontent.com/monlor/subconverter-rules/main/';
+  'https://raw.githubusercontent.com/monlor/subconverter-rules/main/';
 
 export interface RuleSet {
   policy: string;

@@ -2,6 +2,11 @@ import { Env, DEFAULT_REPO_BASE_URL } from './types.js';
 import { cacheKey } from './cache.js';
 
 const CACHE_TTL = 86400 * 30;
+const GH_PROXY = 'https://gh.monlor.com/';
+
+function normalizeUrl(url: string): string {
+  return url.startsWith(GH_PROXY) ? url.slice(GH_PROXY.length) : url;
+}
 
 // Which items to refresh per scope
 type RefreshScope = 'all' | 'shadowrocket' | 'surge' | 'clash' | 'sub';
@@ -35,19 +40,19 @@ interface CacheItem {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function isCached(kv: KVNamespace, url: string): Promise<boolean> {
-  const key = await cacheKey(url);
+  const key = await cacheKey(normalizeUrl(url));
   return (await kv.get(key)) !== null;
 }
 
 async function tryRefresh(kv: KVNamespace, url: string): Promise<{ ok: boolean; error?: string }> {
+  const fetchUrl = normalizeUrl(url);
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const resp = await fetch(fetchUrl, { signal: AbortSignal.timeout(15000) });
     if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
     const text = await resp.text();
-    await kv.put(await cacheKey(url), text, { expirationTtl: CACHE_TTL });
+    await kv.put(await cacheKey(fetchUrl), text, { expirationTtl: CACHE_TTL });
     return { ok: true };
   } catch (e) {
-    // Cache is intentionally NOT touched on failure
     return { ok: false, error: String(e) };
   }
 }
@@ -96,15 +101,16 @@ export async function handleStatus(
 
   const items: CacheItem[] = await Promise.all(
     allUrls.map(async ({ label, url }) => {
-      if (!kv) return { label, url, cached: false };
+      const displayUrl = normalizeUrl(url);
+      if (!kv) return { label, url: displayUrl, cached: false };
 
       if (scope && inScope(label, scope)) {
         const { ok, error } = await tryRefresh(kv, url);
         const cached = ok || (await isCached(kv, url));
-        return { label, url, cached, refreshed: ok, ...(error ? { error } : {}) };
+        return { label, url: displayUrl, cached, refreshed: ok, ...(error ? { error } : {}) };
       }
 
-      return { label, url, cached: await isCached(kv, url) };
+      return { label, url: displayUrl, cached: await isCached(kv, url) };
     }),
   );
 
