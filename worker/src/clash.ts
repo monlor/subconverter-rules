@@ -171,16 +171,21 @@ function generateProxyGroupLines(
 
     if (group.groupType === 'select') {
       const lines = groupHeader(group.name, 'select');
-      appendSeq(lines, 'proxies', policies);
       const includeFiltered =
         filters.length > 0 &&
         group.name !== '🚀 默认节点' &&
         (!policies.length || FULL_NODE_SELECT.has(group.name));
       if (includeFiltered) {
         const filter = combinedFilter(filters);
-        appendSeq(lines, 'use', [LANDING_GROUP]);
-        appendCommon(lines, { filter: filter ?? undefined, hidden: shouldHide(group.name) });
+        const regex = filter ? toJsRegex(filter) : null;
+        const filtered = regex ? landingNames.filter(n => regex.test(n)) : landingNames;
+        const relayNames = (hasRelay && FULL_NODE_SELECT.has(group.name))
+          ? relayProxies.map(p => p.name)
+          : [];
+        appendSeq(lines, 'proxies', [...policies, ...filtered, ...relayNames]);
+        appendCommon(lines, { hidden: shouldHide(group.name) });
       } else {
+        appendSeq(lines, 'proxies', policies);
         appendCommon(lines, { hidden: shouldHide(group.name) });
       }
       all.push(lines);

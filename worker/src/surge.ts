@@ -1,4 +1,4 @@
-import { Env, RuleSet, ProxyGroup, EXCLUDED_NODE_PATTERN } from './types.js';
+import { Env, RuleSet, ProxyGroup, EXCLUDED_NODE_PATTERN, SURGE_SUPPORTED_TYPES } from './types.js';
 import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni, rulesetSlug } from './ini.js';
 import { fetchSubLines } from './cache.js';
 import { parseProxiesFromSubscription, toSurgeLine, ParsedProxy } from './proxy.js';
@@ -256,7 +256,10 @@ export async function generateSurge(env: Env, selfBase: string, force = false): 
 
   const rulesets = parseRuleSets(ini);
   const groups = parseProxyGroups(ini);
-  const landingNames = landingProxies.map(p => p.name).filter(n => n);
+  // Only include names of proxies that Surge actually supports
+  const landingNames = landingProxies
+    .filter(p => SURGE_SUPPORTED_TYPES.has(p.type) && p.name)
+    .map(p => p.name);
 
   const proxySection = generateProxySection(landingProxies, relayProxies, hasRelay);
   const proxyGroupSection = generateProxyGroupSection(groups, landingNames, relayProxies, hasRelay);

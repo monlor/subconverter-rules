@@ -6,6 +6,7 @@ import { generateClash } from './clash.js';
 import { handleRuleset } from './ruleset.js';
 import { handleStatus } from './status.js';
 import { parseRuleSets, urlRuleSets, fetchFullIni } from './ini.js';
+import { fetchUserinfo } from './cache.js';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -13,6 +14,7 @@ export default {
     const selfBase = `${url.protocol}//${url.host}`;
     const key = url.searchParams.get('key');
     const force = url.searchParams.get('force') === '1';
+    const infoType = url.searchParams.get('info') === 'relay' ? 'relay' : 'proxy';
 
     // /ruleset/:index[-name] is public (no auth)
     const rulesetMatch = url.pathname.match(/^\/ruleset\/(\d+)(?:-[^/?]*)?$/);
@@ -25,11 +27,10 @@ export default {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    if (url.pathname === '/sub') return handleSub(env, force);
-    if (url.pathname === '/config') return handleConfig(env, selfBase, request, url, force);
+    if (url.pathname === '/sub') return handleSub(env, force, infoType);
+    if (url.pathname === '/config') return handleConfig(env, selfBase, request, url, force, infoType);
     if (url.pathname === '/status') {
-      const refreshParam = url.searchParams.get('refresh');
-      return handleStatus(env, selfBase, key ?? '', refreshParam);
+      return handleStatus(env, selfBase, key ?? '');
     }
 
     return new Response(helpText(selfBase), {
@@ -40,14 +41,17 @@ export default {
 
 // ─── /sub ────────────────────────────────────────────────────────────────────
 
-async function handleSub(env: Env, force: boolean): Promise<Response> {
+async function handleSub(env: Env, force: boolean, infoType: 'relay' | 'proxy'): Promise<Response> {
   try {
-    const sub = await generateSub(env, force);
+    const [sub, userinfo] = await Promise.all([
+      generateSub(env, force),
+      fetchUserinfo(env.CACHE, infoType === 'proxy' ? env.PROXY_SUBS : env.RELAY_SUBS, force),
+    ]);
     return new Response(sub, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'Content-Disposition': 'attachment; filename="MySub.txt"',
-        'Subscription-Userinfo': 'upload=0; download=0; total=107374182400; expire=99999999999',
+        'Subscription-Userinfo': userinfo ?? 'upload=0; download=0; total=107374182400; expire=99999999999',
       },
     });
   } catch (e) {
@@ -76,33 +80,35 @@ async function handleConfig(
   request: Request,
   url: URL,
   force: boolean,
+  infoType: 'relay' | 'proxy',
 ): Promise<Response> {
   const target = detectTarget(request, url);
   try {
+    const userinfo = await fetchUserinfo(
+      env.CACHE,
+      infoType === 'proxy' ? env.PROXY_SUBS : env.RELAY_SUBS,
+      force,
+    );
+    const subsHeaders: Record<string, string> = {
+      'Content-Type': 'text/plain; charset=utf-8',
+    };
+    if (userinfo) subsHeaders['Subscription-Userinfo'] = userinfo;
+
     if (target === 'shadowrocket') {
       const config = await generateShadowrocket(env, selfBase, force);
       return new Response(config, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="MySub.conf"',
-        },
+        headers: { ...subsHeaders, 'Content-Disposition': 'attachment; filename="MySub.conf"' },
       });
     }
     if (target === 'surge') {
       const config = await generateSurge(env, selfBase, force);
       return new Response(config, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="MySub.conf"',
-        },
+        headers: { ...subsHeaders, 'Content-Disposition': 'attachment; filename="MySub.conf"' },
       });
     }
     const config = await generateClash(env, force);
     return new Response(config, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="MySub.yaml"',
-      },
+      headers: { ...subsHeaders, 'Content-Disposition': 'attachment; filename="MySub.yaml"' },
     });
   } catch (e) {
     return new Response(`Error: ${String(e)}`, { status: 500 });
@@ -150,11 +156,10 @@ Endpoints:
   GET /config?key=<KEY>                    Auto-detect client by User-Agent and return config
   GET /config?key=<KEY>&target=<CLIENT>    Force client: shadowrocket | surge | clash
   GET /status?key=<KEY>                    Clients list + cache status (JSON)
-  GET /status?key=<KEY>&refresh=1          Refresh all caches
-  GET /status?key=<KEY>&refresh=shadowrocket|surge|clash|sub   Refresh per-client caches
   GET /ruleset/<N>?t=shadowrocket|surge    Converted ruleset (public, no key required)
 
-  Add &force=1 to bypass cache on /config and /sub.
+  Add &force=1 to bypass cache and fetch fresh data on /config, /sub, and /ruleset.
+  Add &info=proxy (default) or &info=relay to control which subscription's traffic/expiry info is shown.
 
 User-Agent auto-detection:
   Shadowrocket -> .conf (nodes from /sub, relay chain via RELAY@ groups)

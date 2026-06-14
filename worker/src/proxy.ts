@@ -43,6 +43,8 @@ export interface ParsedProxy {
 
   // VLESS
   flow?: string;
+  realityPbk?: string;
+  realitySid?: string;
 
   // Hysteria2
   authStr?: string;
@@ -242,6 +244,10 @@ export function parseVlessUri(uri: string): ParsedProxy | null {
     if (flow) proxy.flow = flow;
     if (params.get('fp')) proxy.fingerprint = params.get('fp')!;
     if (boolParam(params.get('allowInsecure'))) proxy.skipCertVerify = true;
+    const pbk = params.get('pbk') ?? '';
+    const sid = params.get('sid') ?? '';
+    if (pbk) proxy.realityPbk = pbk;
+    if (sid) proxy.realitySid = sid;
     if (network === 'ws') {
       proxy.wsPath = params.get('path') ?? '/';
       proxy.wsHost = params.get('host') ?? '';
@@ -370,6 +376,41 @@ export function parseTuicUri(uri: string): ParsedProxy | null {
   } catch { return null; }
 }
 
+// ─── AnyTLS parser ───────────────────────────────────────────────────────────
+// anytls://password@host:port?sni=xxx&insecure=1&fingerprint=xxx#name
+
+export function parseAnyTLSUri(uri: string): ParsedProxy | null {
+  try {
+    const withoutScheme = uri.slice('anytls://'.length);
+    const hashIdx = withoutScheme.indexOf('#');
+    const name = hashIdx !== -1 ? decodeName(withoutScheme.slice(hashIdx + 1)) : 'AnyTLS Node';
+    const main = hashIdx !== -1 ? withoutScheme.slice(0, hashIdx) : withoutScheme;
+
+    const atIdx = main.indexOf('@');
+    if (atIdx === -1) return null;
+    const password = decodeURIComponent(main.slice(0, atIdx));
+    const rest = main.slice(atIdx + 1);
+    const qIdx = rest.indexOf('?');
+    const hostpart = qIdx !== -1 ? rest.slice(0, qIdx) : rest;
+    const queryStr = qIdx !== -1 ? rest.slice(qIdx + 1) : '';
+
+    const lastColon = hostpart.lastIndexOf(':');
+    if (lastColon === -1) return null;
+    const server = hostpart.slice(0, lastColon);
+    const port = parsePort(hostpart.slice(lastColon + 1));
+
+    const params = new URLSearchParams(queryStr);
+    const sni = params.get('sni') ?? '';
+    const fingerprint = params.get('fingerprint') ?? '';
+
+    const proxy: ParsedProxy = { name, type: 'anytls', server, port, password, tls: true };
+    if (sni) proxy.sni = sni;
+    if (fingerprint) proxy.fingerprint = fingerprint;
+    if (boolParam(params.get('insecure')) || boolParam(params.get('allowInsecure'))) proxy.skipCertVerify = true;
+    return proxy;
+  } catch { return null; }
+}
+
 // ─── Main parser ─────────────────────────────────────────────────────────────
 
 export function parseProxyUri(uri: string): ParsedProxy | null {
@@ -381,6 +422,7 @@ export function parseProxyUri(uri: string): ParsedProxy | null {
   if (trimmed.startsWith('trojan://')) return parseTrojanUri(trimmed);
   if (trimmed.startsWith('hy2://') || trimmed.startsWith('hysteria2://')) return parseHysteria2Uri(trimmed);
   if (trimmed.startsWith('tuic://')) return parseTuicUri(trimmed);
+  if (trimmed.startsWith('anytls://')) return parseAnyTLSUri(trimmed);
   return null;
 }
 
@@ -478,6 +520,14 @@ export function toSurgeLine(proxy: ParsedProxy, underlyingProxy?: string): strin
       return line + chain;
     }
 
+    case 'anytls': {
+      let line = `${proxy.name} = anytls, ${proxy.server}, ${proxy.port}, password=${proxy.password}`;
+      if (proxy.sni) line += `, sni=${proxy.sni}`;
+      if (proxy.skipCertVerify) line += ', skip-cert-verify=true';
+      if (proxy.fingerprint) line += `, server-cert-fingerprint-sha256=${proxy.fingerprint}`;
+      return line + chain;
+    }
+
     default:
       return null;
   }
@@ -567,6 +617,11 @@ function clashProxyLines(proxy: ParsedProxy, dialerProxy?: string): string[] | n
       if (proxy.flow) push('flow', yamlStr(proxy.flow));
       if (proxy.skipCertVerify) push('skip-cert-verify', 'true');
       if (proxy.fingerprint) push('client-fingerprint', yamlStr(proxy.fingerprint));
+      if (proxy.realityPbk) {
+        lines.push('    reality-opts:');
+        lines.push(`      public-key: ${yamlStr(proxy.realityPbk)}`);
+        if (proxy.realitySid) lines.push(`      short-id: ${yamlStr(proxy.realitySid)}`);
+      }
       if (proxy.network && proxy.network !== 'tcp') {
         push('network', proxy.network);
         if (proxy.network === 'ws') {
@@ -635,6 +690,18 @@ function clashProxyLines(proxy: ParsedProxy, dialerProxy?: string): string[] | n
       }
       if (proxy.congestionControl) push('congestion-controller', proxy.congestionControl);
       push('udp-relay-mode', 'native');
+      break;
+    }
+
+    case 'anytls': {
+      lines.push(`  - name: ${yamlStr(proxy.name)}`);
+      push('type', 'anytls');
+      push('server', yamlStr(proxy.server));
+      push('port', String(proxy.port));
+      push('password', yamlStr(proxy.password ?? ''));
+      if (proxy.sni) push('sni', yamlStr(proxy.sni));
+      if (proxy.skipCertVerify) push('skip-cert-verify', 'true');
+      if (proxy.fingerprint) push('client-fingerprint', yamlStr(proxy.fingerprint));
       break;
     }
 
