@@ -53,6 +53,25 @@ export function decodeBase64(text: string): string | null {
   }
 }
 
+/** Fetch all sub URLs, decode base64, return raw URI lines. */
+export async function fetchSubLines(
+  kv: KVNamespace | undefined,
+  subs: string,
+  force = false,
+): Promise<string[]> {
+  const lines: string[] = [];
+  for (const sub of subs.split(',').map(s => s.trim()).filter(Boolean)) {
+    const text = await getSubContent(kv, sub, force);
+    if (!text) continue;
+    const content = decodeBase64(text) ?? text;
+    for (const line of content.split(/[\r\n]+/)) {
+      const t = line.trim();
+      if (t.includes('://')) lines.push(t);
+    }
+  }
+  return lines;
+}
+
 async function cacheKey(url: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url));
   return 'cache:' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');

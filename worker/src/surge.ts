@@ -1,10 +1,11 @@
 import { Env, RuleSet, ProxyGroup, EXCLUDED_NODE_PATTERN } from './types.js';
 import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni } from './ini.js';
+import { fetchSubLines } from './cache.js';
+import { parseProxiesFromSubscription, toSurgeLine, ParsedProxy } from './proxy.js';
 
 const FULL_NODE_SELECT = new Set(['🚀 手动选择', '📶 VoWiFi']);
-const LANDING_PROVIDER = '代理节点';
-const RELAY_PROVIDER = '中转节点';
-const DEFAULT_INTERFACE = '🌐 默认网卡';
+const LANDING_GROUP = '代理节点';
+const RELAY_GROUP_NAME = '中转节点';
 const CELLULAR_POLICY = '📱 蜂窝流量';
 const RELAY_INTERFACE_POLICY = '↔️ 中转网卡';
 const DIRECT = 'DIRECT';
@@ -26,35 +27,54 @@ const RELAY_IFACES = [
   'pdp_ip0',
 ];
 
-function relayIfacePolicy(iface: string) {
-  return `🛜 网卡 ${iface}`;
-}
-
+function relayIfacePolicy(iface: string) { return `🛜 网卡 ${iface}`; }
 function ifaceModifier(iface: string) {
   return `interface=${iface},allow-other-interface=false,dns-follow-interface=true`;
 }
+function quote(s: string) { return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`; }
 
-function extPolicyModifier(underlying: string | null, iface: string | null): string | null {
-  const parts: string[] = [];
-  if (underlying) parts.push(`underlying-proxy=${underlying}`);
-  if (iface) parts.push(ifaceModifier(iface));
-  if (!parts.length) return null;
-  return `external-policy-modifier="${parts.join(',')}"`;
+// ─── Fetch & parse subs ──────────────────────────────────────────────────────
+// ─── Region filter ───────────────────────────────────────────────────────────
+
+const REGION_PATTERNS: [string, string, string][] = [
+  ['🇭🇰 香港中转', '香港|港|HK|Hong Kong', 'HK'],
+  ['🇸🇬 新加坡中转', '新加坡|坡|狮城|SG|Singapore', 'SG'],
+  ['🇺🇲 美国中转', '美国|US|United States|洛杉矶|西雅图|硅谷|圣何塞', 'US'],
+  ['🇯🇵 日本中转', '日本|东京|大阪|泉日|埼玉|JP|Japan', 'JP'],
+];
+
+function matchesExclude(name: string): boolean {
+  const excl = EXCL.split('|');
+  return excl.some(e => name.includes(e));
 }
-
-function quote(s: string): string {
-  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+function matchesRegion(name: string, pattern: string): boolean {
+  return pattern.split('|').some(k => name.includes(k));
 }
 
 // ─── [Proxy] section ─────────────────────────────────────────────────────────
 
-function generateProxySection(iface: string | null): string {
+function generateProxySection(
+  landingProxies: ParsedProxy[],
+  relayProxies: ParsedProxy[],
+  hasRelay: boolean,
+): string {
   const lines = [...MAC_INTERFACE_NOTES];
-  if (iface) {
-    lines.push(`${DEFAULT_INTERFACE} = direct,${ifaceModifier(iface)}`);
-  }
   for (const ri of RELAY_IFACES) {
     lines.push(`${relayIfacePolicy(ri)} = direct,${ifaceModifier(ri)}`);
+  }
+  lines.push('');
+
+  const underlying = hasRelay ? RELAY_DIALER : undefined;
+  for (const p of landingProxies) {
+    const line = toSurgeLine(p, underlying);
+    if (line) lines.push(line);
+  }
+  if (hasRelay && relayProxies.length) {
+    lines.push('');
+    for (const p of relayProxies) {
+      const line = toSurgeLine(p);
+      if (line) lines.push(line);
+    }
   }
   return lines.join('\n');
 }
@@ -90,7 +110,10 @@ function parseTestOptions(group: ProxyGroup): [string, string, string] {
   return [url, interval, tolerance];
 }
 
-function convertSelectGroup(group: ProxyGroup, relayUrl: string | null): string {
+function convertSelectGroup(
+  group: ProxyGroup,
+  hasRelay: boolean,
+): string {
   let [policies, filters] = parsedItems(group);
   policies = moveDirectToBottom(policies);
   const fields = [group.groupType, ...policies];
@@ -100,13 +123,13 @@ function convertSelectGroup(group: ProxyGroup, relayUrl: string | null): string 
     (!policies.length || FULL_NODE_SELECT.has(group.name));
 
   if (includeFiltered) {
-    const providers = [LANDING_PROVIDER];
-    if (relayUrl && FULL_NODE_SELECT.has(group.name)) providers.push(RELAY_PROVIDER);
-    if (providers.length === 1) {
-      fields.push(`include-other-group=${providers[0]}`);
-    } else {
-      fields.push(`include-other-group=${quote(providers.join(','))}`);
-    }
+    const groups = [LANDING_GROUP];
+    if (hasRelay && FULL_NODE_SELECT.has(group.name)) groups.push(RELAY_GROUP_NAME);
+    fields.push(
+      groups.length === 1
+        ? `include-other-group=${groups[0]}`
+        : `include-other-group=${quote(groups.join(','))}`,
+    );
     for (const f of filters) fields.push(`policy-regex-filter=${quote(f)}`);
   }
   return `${group.name} = ${fields.join(',')}`;
@@ -118,7 +141,7 @@ function convertExternalGroup(group: ProxyGroup): string {
   const isUrlTest = group.groupType === 'url-test';
   const fields = [
     isUrlTest ? 'smart' : group.groupType,
-    `include-other-group=${LANDING_PROVIDER}`,
+    `include-other-group=${LANDING_GROUP}`,
   ];
   if (!isUrlTest) {
     fields.push(`url=${url}`, `interval=${interval}`);
@@ -128,8 +151,11 @@ function convertExternalGroup(group: ProxyGroup): string {
   return `${group.name} = ${fields.join(',')}`;
 }
 
-function convertGroup(group: ProxyGroup, relayUrl: string | null): string {
-  if (group.groupType === 'select') return convertSelectGroup(group, relayUrl);
+function convertGroup(
+  group: ProxyGroup,
+  hasRelay: boolean,
+): string {
+  if (group.groupType === 'select') return convertSelectGroup(group, hasRelay);
   if (['url-test', 'fallback', 'load-balance', 'random'].includes(group.groupType)) {
     return convertExternalGroup(group);
   }
@@ -141,71 +167,48 @@ function convertGroup(group: ProxyGroup, relayUrl: string | null): string {
   return `${group.name} = ${fields.join(',')}`;
 }
 
-function generateRelayChoices(relayUrl: string | null): string[] {
+function generateRelayChoices(hasRelay: boolean): string[] {
   const choices: string[] = [];
-  if (relayUrl) choices.push('🇭🇰 香港中转', '🇸🇬 新加坡中转', '🇺🇲 美国中转', '🇯🇵 日本中转');
+  if (hasRelay) choices.push(...REGION_PATTERNS.map(([name]) => name));
   choices.push(CELLULAR_POLICY, RELAY_INTERFACE_POLICY, DIRECT);
   return choices;
 }
 
-function generateProviderGroups(
-  proxyUrl: string,
-  relayUrl: string | null,
-  iface: string | null,
-): string {
-  const proxyModifier = extPolicyModifier(RELAY_DIALER, iface);
-  const proxyFields = [
-    `${LANDING_PROVIDER} = select`,
-    `policy-path=${proxyUrl}`,
-    'hidden=true',
-  ];
-  if (proxyModifier) proxyFields.push(proxyModifier);
-
-  const lines = [
-    '# External policies',
-    `${RELAY_DIALER} = select,${generateRelayChoices(relayUrl).join(',')}`,
-    `${CELLULAR_POLICY} = select,CELLULAR-ONLY,hidden=true`,
-    `${RELAY_INTERFACE_POLICY} = select,${RELAY_IFACES.map(relayIfacePolicy).join(',')}`,
-    proxyFields.join(','),
-  ];
-  return lines.join('\n');
-}
-
-function generateRelayGroups(relayUrl: string, iface: string | null): string {
-  const excl = `(?i)^(?!.*(${EXCL})).*`;
-  const relayFields = [`${RELAY_PROVIDER} = select`, `policy-path=${relayUrl}`, 'hidden=true'];
-  const relayModifier = extPolicyModifier(null, iface);
-  if (relayModifier) relayFields.push(relayModifier);
-
-  const regions = [
-    ['🇭🇰 香港中转', '香港|港|HK|Hong Kong'],
-    ['🇸🇬 新加坡中转', '新加坡|坡|狮城|SG|Singapore'],
-    ['🇺🇲 美国中转', '美国|US|United States|洛杉矶|西雅图|硅谷|圣何塞'],
-    ['🇯🇵 日本中转', '日本|东京|大阪|泉日|埼玉|JP|Japan'],
-  ];
-
-  const regionLines = regions.map(([name, kw]) =>
-    `${name} = smart,include-other-group=${RELAY_PROVIDER},hidden=true,policy-regex-filter="${excl}(${kw}).*$"`
-  );
-
-  return [relayFields.join(','), ...regionLines].join('\n');
-}
-
 function generateProxyGroupSection(
   groups: ProxyGroup[],
-  proxyUrl: string,
-  relayUrl: string | null,
-  iface: string | null,
+  landingNames: string[],
+  relayProxies: ParsedProxy[],
+  hasRelay: boolean,
 ): string {
-  const lines = [
-    '# Generated from full.ini',
-    generateProviderGroups(proxyUrl, relayUrl, iface),
-    ...groups.map(g => convertGroup(g, relayUrl)),
-  ];
-  if (relayUrl) {
-    lines.push('# Relay subscription groups');
-    lines.push(generateRelayGroups(relayUrl, iface));
+  const lines = ['# Generated from full.ini + subscription nodes'];
+
+  // Chain selector + cell + interface + provider groups
+  lines.push(`${RELAY_DIALER} = select,${generateRelayChoices(hasRelay).join(',')}`);
+  lines.push(`${CELLULAR_POLICY} = select,CELLULAR-ONLY,hidden=true`);
+  lines.push(`${RELAY_INTERFACE_POLICY} = select,${RELAY_IFACES.map(relayIfacePolicy).join(',')}`);
+
+  // 代理节点 = all landing node names
+  lines.push(`${LANDING_GROUP} = select,${landingNames.join(',')},hidden=true`);
+
+  // Groups from full.ini
+  for (const group of groups) {
+    lines.push(convertGroup(group, hasRelay));
   }
+
+  // Relay region groups with explicit relay node names
+  if (hasRelay && relayProxies.length) {
+    const relayNames = relayProxies.map(p => p.name);
+    lines.push(`${RELAY_GROUP_NAME} = select,${relayNames.join(',')},hidden=true`);
+
+    for (const [groupName, pattern] of REGION_PATTERNS) {
+      const filtered = relayProxies
+        .filter(p => !matchesExclude(p.name) && matchesRegion(p.name, pattern))
+        .map(p => p.name);
+      if (!filtered.length) continue;
+      lines.push(`${groupName} = smart,${filtered.join(',')},hidden=true`);
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -228,11 +231,9 @@ function generateRuleSection(rulesets: RuleSet[], selfBase: string): string {
   let urlIdx = 1;
   const lines: string[] = ['# Generated from full.ini'];
   for (const rs of rulesets) {
-    if (rs.target.startsWith('[]')) {
-      lines.push(convertRulesetLine(rs, 0, selfBase));
-    } else {
-      lines.push(convertRulesetLine(rs, urlIdx++, selfBase));
-    }
+    lines.push(rs.target.startsWith('[]')
+      ? convertRulesetLine(rs, 0, selfBase)
+      : convertRulesetLine(rs, urlIdx++, selfBase));
   }
   return lines.join('\n');
 }
@@ -240,27 +241,25 @@ function generateRuleSection(rulesets: RuleSet[], selfBase: string): string {
 // ─── Assembly ─────────────────────────────────────────────────────────────────
 
 export async function generateSurge(env: Env, selfBase: string, force = false): Promise<string> {
-  const proxyUrl =
-    env.PROXY_SUB_URL ??
-    (env.PROXY_SUBS ?? '').split(',').map(s => s.trim()).filter(Boolean)[0] ??
-    'https://example.invalid/PROXY_SURGE_URL';
-  const relayRaw =
-    env.RELAY_SUB_URL ??
-    (env.RELAY_SUBS ?? '').split(',').map(s => s.trim()).filter(Boolean)[0] ??
-    null;
-  const relayUrl = relayRaw || null;
-  const iface = env.SURGE_INTERFACE ?? null;
+  const hasRelaySubs = Boolean((env.RELAY_SUBS ?? '').trim());
 
-  const [ini, template] = await Promise.all([
+  const [ini, template, landingLines, relayLines] = await Promise.all([
     fetchFullIni(env, force),
     fetchRepoFile(env, 'surge/template.conf', force),
+    fetchSubLines(env.CACHE, env.PROXY_SUBS ?? '', force),
+    hasRelaySubs ? fetchSubLines(env.CACHE, env.RELAY_SUBS ?? '', force) : Promise.resolve([] as string[]),
   ]);
+
+  const landingProxies = parseProxiesFromSubscription(landingLines.join('\n'));
+  const relayProxies = parseProxiesFromSubscription(relayLines.join('\n'));
+  const hasRelay = relayProxies.length > 0;
 
   const rulesets = parseRuleSets(ini);
   const groups = parseProxyGroups(ini);
+  const landingNames = landingProxies.map(p => p.name).filter(n => n);
 
-  const proxySection = generateProxySection(iface);
-  const proxyGroupSection = generateProxyGroupSection(groups, proxyUrl, relayUrl, iface);
+  const proxySection = generateProxySection(landingProxies, relayProxies, hasRelay);
+  const proxyGroupSection = generateProxyGroupSection(groups, landingNames, relayProxies, hasRelay);
   const ruleSection = generateRuleSection(rulesets, selfBase);
 
   const placeholders: Record<string, string> = {
