@@ -46,6 +46,7 @@ async function handleSub(env: Env, force: boolean): Promise<Response> {
     return new Response(sub, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="MySub.txt"',
         'Subscription-Userinfo': 'upload=0; download=0; total=107374182400; expire=99999999999',
       },
     });
@@ -83,7 +84,7 @@ async function handleConfig(
       return new Response(config, {
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="shadowrocket.conf"',
+          'Content-Disposition': 'attachment; filename="MySub.conf"',
         },
       });
     }
@@ -92,7 +93,7 @@ async function handleConfig(
       return new Response(config, {
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="surge.conf"',
+          'Content-Disposition': 'attachment; filename="MySub.conf"',
         },
       });
     }
@@ -100,7 +101,7 @@ async function handleConfig(
     return new Response(config, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="clash.yaml"',
+        'Content-Disposition': 'attachment; filename="MySub.yaml"',
       },
     });
   } catch (e) {

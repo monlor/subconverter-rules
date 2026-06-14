@@ -27,6 +27,10 @@ const REGION_PATTERNS: [string, string][] = [
   ['🇯🇵 日本中转', '日本|东京|大阪|泉日|埼玉|JP|Japan'],
 ];
 
+function toJsRegex(pattern: string): RegExp {
+  return new RegExp(pattern.replace(/^\(\?i\)/, ''), 'i');
+}
+
 function relayIfacePolicy(iface: string) { return `🛜 网卡 ${iface}`; }
 function quote(s: string) { return JSON.stringify(s); }
 
@@ -190,7 +194,7 @@ function generateProxyGroupLines(
       const lines = groupHeader(group.name, type);
       // Use inline proxy names matching the filter
       const filtered = regex
-        ? landingNames.filter(name => new RegExp(regex, 'i').test(name))
+        ? landingNames.filter(name => toJsRegex(regex).test(name))
         : landingNames;
       if (filtered.length) {
         appendSeq(lines, 'proxies', filtered);
