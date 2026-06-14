@@ -3,23 +3,7 @@ import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni } from './
 
 const FULL_NODE_SELECT = new Set(['🚀 手动选择', '📶 VoWiFi']);
 const RELAY_GROUP = '🔀 中转代理';
-const RELAY_EXCLUDE = EXCLUDED_NODE_PATTERN;
-const RELAY_FILTER = `(?i)^RELAY@(?!.*(${RELAY_EXCLUDE})).*`;
-
-// ─── lazy_group.conf splitting ───────────────────────────────────────────────
-
-function splitLazyConfig(text: string): [string, string, string] {
-  const pgMarker = '\n[Proxy Group]\n';
-  const ruleMarker = '\n[Rule]\n';
-  const hostMarker = '\n[Host]\n';
-  if (!text.includes(pgMarker) || !text.includes(ruleMarker) || !text.includes(hostMarker)) {
-    throw new Error('lazy_group.conf must contain [Proxy Group], [Rule], and [Host] sections');
-  }
-  const [beforePG, rest1] = text.split(pgMarker);
-  const [, rest2] = rest1.split(ruleMarker);
-  const [, afterHost] = rest2.split(hostMarker);
-  return [beforePG + pgMarker, '[Rule]\n', '[Host]\n' + afterHost];
-}
+const RELAY_FILTER = `(?i)^RELAY@(?!.*(${EXCLUDED_NODE_PATTERN})).*`;
 
 // ─── Proxy group conversion ──────────────────────────────────────────────────
 
@@ -70,47 +54,18 @@ function convertProxyGroup(group: ProxyGroup): string {
   return `${group.name} = ${fields.join(',')}`;
 }
 
-function generateProxyGroupsSection(groups: ProxyGroup[]): string {
-  return groups.map(convertProxyGroup).join('\n') + '\n';
-}
-
-// ─── Rules ───────────────────────────────────────────────────────────────────
-
-function convertRulesetLine(ruleset: RuleSet, urlIndex: number, selfBase: string): string {
-  const { policy, target } = ruleset;
-  if (target.startsWith('[]')) {
-    const inline = target.slice(2);
-    const parts = inline.split(',').map(p => p.trim()).filter(Boolean);
-    if (parts[0].toUpperCase() === 'FINAL') return `FINAL,${policy}`;
-    return [...parts, policy].join(',');
-  }
-  return `RULE-SET,${selfBase}/ruleset/${urlIndex}?t=shadowrocket,${policy}`;
-}
-
-function generateRulesSection(rulesets: RuleSet[], selfBase: string): string {
-  let urlIdx = 1;
-  const lines: string[] = [];
-  for (const rs of rulesets) {
-    if (rs.target.startsWith('[]')) {
-      lines.push(convertRulesetLine(rs, 0, selfBase));
-    } else {
-      lines.push(convertRulesetLine(rs, urlIdx++, selfBase));
-    }
-  }
-  return lines.join('\n') + '\n';
-}
-
 // ─── Relay patching (chain proxy support) ────────────────────────────────────
 
-const RELAY_REGION_GROUPS = `# Relay region groups
-🇭🇰 香港中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(香港|港|HK|Hong Kong).*$
-🇹🇼 台湾中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(台湾|台北|TW|Taiwan).*$
-🇸🇬 新加坡中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(新加坡|坡|狮城|SG|Singapore).*$
-🇯🇵 日本中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(日本|东京|大阪|泉日|埼玉|JP|Japan).*$
-🇺🇲 美国中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(美国|波特兰|达拉斯|俄勒冈|凤凰城|费利蒙|硅谷|拉斯维加斯|洛杉矶|圣何塞|圣克拉拉|西雅图|芝加哥|US|United States).*$
-🇩🇪 德国中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(德国|DE|Germany).*$
-🇬🇧 英国中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(英国|UK|United Kingdom).*$
-🇦🇺 澳洲中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(澳洲|澳大利亚|AU|Australia).*$`;
+const RELAY_REGION_GROUPS = [
+  `🇭🇰 香港中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(香港|港|HK|Hong Kong).*$`,
+  `🇹🇼 台湾中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(台湾|台北|TW|Taiwan).*$`,
+  `🇸🇬 新加坡中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(新加坡|坡|狮城|SG|Singapore).*$`,
+  `🇯🇵 日本中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(日本|东京|大阪|泉日|埼玉|JP|Japan).*$`,
+  `🇺🇲 美国中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(美国|波特兰|达拉斯|俄勒冈|凤凰城|费利蒙|硅谷|拉斯维加斯|洛杉矶|圣何塞|圣克拉拉|西雅图|芝加哥|US|United States).*$`,
+  `🇩🇪 德国中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(德国|DE|Germany).*$`,
+  `🇬🇧 英国中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(英国|UK|United Kingdom).*$`,
+  `🇦🇺 澳洲中转 = url-test,url=http://www.gstatic.com/generate_204,interval=300,select=0,tolerance=50,policy-regex-filter=${RELAY_FILTER}(澳洲|澳大利亚|AU|Australia).*$`,
+].join('\n');
 
 function patchGroupLine(line: string): string {
   if (!line.includes('policy-regex-filter=')) return line;
@@ -122,43 +77,51 @@ function patchGroupLine(line: string): string {
   });
 }
 
-function patchProxyGroupsSection(content: string): string {
+function generateProxyGroupSection(groups: ProxyGroup[]): string {
   const relayMain = `${RELAY_GROUP} = select,🇭🇰 香港中转,🇹🇼 台湾中转,🇸🇬 新加坡中转,🇯🇵 日本中转,🇺🇲 美国中转,🇩🇪 德国中转,🇬🇧 英国中转,🇦🇺 澳洲中转,DIRECT`;
-  const patched: string[] = [];
-  let inserted = false;
-  for (const line of content.split('\n')) {
-    if (!inserted && line.trim() && !line.trim().startsWith('#')) {
-      patched.push(relayMain);
-      inserted = true;
+  const groupLines = groups.map(g => patchGroupLine(convertProxyGroup(g)));
+  return [relayMain, ...groupLines, '', RELAY_REGION_GROUPS].join('\n');
+}
+
+// ─── Rule section ─────────────────────────────────────────────────────────────
+
+function generateRuleSection(rulesets: RuleSet[], selfBase: string): string {
+  let urlIdx = 1;
+  const lines: string[] = [];
+  for (const rs of rulesets) {
+    const { policy, target } = rs;
+    if (target.startsWith('[]')) {
+      const inline = target.slice(2);
+      const parts = inline.split(',').map(p => p.trim()).filter(Boolean);
+      lines.push(parts[0].toUpperCase() === 'FINAL' ? `FINAL,${policy}` : [...parts, policy].join(','));
+    } else {
+      lines.push(`RULE-SET,${selfBase}/ruleset/${urlIdx++}?t=shadowrocket,${policy}`);
     }
-    patched.push(patchGroupLine(line));
   }
-  patched.push('', RELAY_REGION_GROUPS);
-  return patched.join('\n');
+  return lines.join('\n');
 }
 
 // ─── Assembly ─────────────────────────────────────────────────────────────────
 
 export async function generateShadowrocket(env: Env, selfBase: string, force = false): Promise<string> {
-  const [ini, lazyText] = await Promise.all([
+  const [ini, template] = await Promise.all([
     fetchFullIni(env, force),
-    fetchRepoFile(env, 'shadowrocket/lazy_group.conf', force),
+    fetchRepoFile(env, 'shadowrocket/template.conf', force),
   ]);
 
   const rulesets = parseRuleSets(ini);
   const groups = parseProxyGroups(ini);
 
-  const [beforePG, ruleHeader, afterHost] = splitLazyConfig(lazyText);
+  const placeholders: Record<string, string> = {
+    '{{PROXY_GROUP_SECTION}}': generateProxyGroupSection(groups),
+    '{{RULE_SECTION}}': generateRuleSection(rulesets, selfBase),
+  };
 
-  const proxyGroupsRaw = generateProxyGroupsSection(groups);
-  const proxyGroupsPatched = patchProxyGroupsSection(proxyGroupsRaw);
-  const rulesSection = generateRulesSection(rulesets, selfBase);
+  let result = template;
+  for (const [ph, value] of Object.entries(placeholders)) {
+    if (!result.includes(ph)) throw new Error(`Missing template placeholder: ${ph}`);
+    result = result.replace(ph, value);
+  }
 
-  return (
-    beforePG +
-    proxyGroupsPatched + '\n' +
-    ruleHeader +
-    rulesSection + '\n' +
-    afterHost
-  ).trimEnd() + '\n';
+  return result.trimEnd() + '\n';
 }

@@ -18,7 +18,7 @@ function inScope(label: string, scope: RefreshScope): boolean {
   if (scope === 'all') return true;
   if (scope === 'sub') return label.startsWith('PROXY_SUBS') || label.startsWith('RELAY_SUBS');
   const subLabels = label.startsWith('PROXY_SUBS') || label.startsWith('RELAY_SUBS');
-  if (scope === 'shadowrocket') return label === 'full.ini' || label.includes('lazy_group') || subLabels;
+  if (scope === 'shadowrocket') return label === 'full.ini' || label.includes('shadowrocket/template') || subLabels;
   if (scope === 'surge') return label === 'full.ini' || label.includes('template') || subLabels;
   if (scope === 'clash') return label === 'full.ini' || subLabels;
   return false;
@@ -76,7 +76,7 @@ export async function handleStatus(
 
   const infraUrls = [
     { label: 'full.ini', url: repoBase + 'full.ini' },
-    { label: 'shadowrocket/lazy_group.conf', url: repoBase + 'shadowrocket/lazy_group.conf' },
+    { label: 'shadowrocket/template.conf', url: repoBase + 'shadowrocket/template.conf' },
     { label: 'surge/template.conf', url: repoBase + 'surge/template.conf' },
   ];
   const subUrls = [
