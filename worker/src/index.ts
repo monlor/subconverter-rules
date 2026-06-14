@@ -28,8 +28,8 @@ export default {
     if (url.pathname === '/sub') return handleSub(env, force);
     if (url.pathname === '/config') return handleConfig(env, selfBase, request, url, force);
     if (url.pathname === '/status') {
-      const refresh = url.searchParams.get('refresh') === '1';
-      return handleStatus(env, selfBase, refresh);
+      const refreshParam = url.searchParams.get('refresh');
+      return handleStatus(env, selfBase, key ?? '', refreshParam);
     }
 
     return new Response(helpText(selfBase), {
@@ -149,7 +149,8 @@ Endpoints:
   GET /config?key=<KEY>                    Auto-detect client by User-Agent and return config
   GET /config?key=<KEY>&target=<CLIENT>    Force client: shadowrocket | surge | clash
   GET /status?key=<KEY>                    Clients list + cache status (JSON)
-  GET /status?key=<KEY>&refresh=1          Refresh upstream cache (keeps cache on failure)
+  GET /status?key=<KEY>&refresh=1          Refresh all caches
+  GET /status?key=<KEY>&refresh=shadowrocket|surge|clash|sub   Refresh per-client caches
   GET /ruleset/<N>?t=shadowrocket|surge    Converted ruleset (public, no key required)
 
   Add &force=1 to bypass cache on /config and /sub.
