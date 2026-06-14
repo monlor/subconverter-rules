@@ -1,118 +1,236 @@
-# Shadowrocket Worker — 设计文档
+# mysub Worker — 维护指南
 
-## 项目目标
+## 架构概览
 
-为 Shadowrocket 提供两个核心端点：
+Worker 部署在 `mysub.monlor.com`，运行时从 GitHub 读取 `full.ini`，按需生成多客户端配置，无本地预生成文件。
 
-- `/sub` — SS 格式节点订阅（代理节点 + 中转节点合并，带前缀和 chain 参数）
-- `/config` — Shadowrocket `.conf` 配置文件（路由规则 + 策略组，不含节点）
+```
+full.ini（唯一真源）
+    ├── parseRuleSets()   → RuleSet[]   → 规则段
+    └── parseProxyGroups()→ ProxyGroup[]→ 策略组段
 
-两者配合使用：在 Shadowrocket 中同时导入 `/config`（配置）和 `/sub`（订阅），配置负责规则，订阅负责节点。
+PROXY_SUBS / RELAY_SUBS（secrets）
+    └── fetchSubLines()   → URI[]       → 节点列表
+
+                ↓  按 UA 或 ?target= 分流
+        ┌───────┬────────┬─────────┐
+        SR      Surge    Clash     /sub
+        │       │        │         │
+  template.conf  template.conf  (无模板)  (URI 前缀化)
+  [Proxy Group]  [Proxy Group]  proxies:
+  [Rule]         [Rule]         proxy-groups:
+  RELAY@ patch   underlying-proxy  dialer-proxy
+```
 
 ---
 
-## 节点命名规则
+## 文件职责
 
-所有节点下载后，仅修改节点名称（加前缀），其余字段原样保留。
+| 文件 | 职责 |
+|---|---|
+| `index.ts` | 路由 + UA 分流 + 鉴权，所有端点入口 |
+| `types.ts` | `Env` 接口、常量（`PROXYPASS_UNSUPPORTED`、`EXCLUDED_NODE_PATTERN`） |
+| `ini.ts` | 解析 `full.ini`（`parseRuleSets`、`parseProxyGroups`、`rulesetSlug`） |
+| `cache.ts` | `cachedFetch`（KV 缓存 30 天 + 失败回退）、`fetchSubLines`、`cacheKey` |
+| `proxy.ts` | 解析代理 URI（ss/ssr/vmess/vless/trojan/hy2/tuic），输出 Surge 行或 Clash YAML |
+| `ruleset.ts` | `/ruleset/:index-:name` 端点，拉取上游规则集并按客户端类型转换 |
+| `shadowrocket.ts` | 生成 SR `.conf`：读 `shadowrocket/template.conf`，注入策略组和规则 |
+| `surge.ts` | 生成 Surge `.conf`：读 `surge/template.conf`，内嵌节点，注入策略组和规则 |
+| `clash.ts` | 生成 Clash `.yaml`：内嵌 proxies，生成 proxy-groups、rule-providers |
+| `status.ts` | `/status` 端点：客户端列表 + 缓存状态 + 刷新 |
 
-| 前缀 | 来源 | 说明 |
+---
+
+## 端点列表
+
+| 端点 | 鉴权 | 说明 |
 |---|---|---|
-| `PROXY@` | `PROXY_SUBS` 中支持 proxy pass 的协议（如 vless、vmess、ss、trojan） | 走中转链路，URI 追加 `chain=🔀 中转代理` |
-| `DIRECT@` | `PROXY_SUBS` 中不支持 proxy pass 的协议（tuic、hysteria2、hy2、anytls、wireguard 等） | 直接连接，无 chain |
-| `RELAY@` | `RELAY_SUBS` | 中转节点，供中转策略组选择 |
+| `GET /` | 无 | 帮助文本 |
+| `GET /sub?key=K` | 需要 | SR 节点订阅（PROXY@/DIRECT@/RELAY@ 前缀 + chain 参数） |
+| `GET /config?key=K` | 需要 | 按 UA 自动选客户端，返回配置文件 |
+| `GET /config?key=K&target=surge\|clash\|shadowrocket` | 需要 | 强制指定客户端 |
+| `GET /ruleset/:index-:name?t=shadowrocket\|surge` | 无 | 规则集（公开，按客户端类型转换） |
+| `GET /status?key=K` | 需要 | 缓存状态 JSON |
+| `GET /status?key=K&refresh=1\|shadowrocket\|surge\|clash\|sub` | 需要 | 刷新指定范围的缓存 |
 
-**不支持 proxy pass 的协议（`PROXYPASS_UNSUPPORTED`）：**
-```
-wireguard, hysteria, hysteria2, hy2, tuic, juicity, anytls
-```
-
----
-
-## `/sub` 订阅生成逻辑
-
-1. **无 UA 下载**：不设置 User-Agent，获取原始标准格式订阅（base64 编码 URI 列表）
-2. **解码**：支持标准 base64 和 URL-safe base64，解码后按行分割
-3. **命名**：
-   - vmess：修改 JSON 中的 `ps` 字段
-   - ssr：修改 base64 参数中的 `remarks` 字段
-   - 其他：修改 URI 的 `#fragment` 或 `remark=` query param
-4. **chain**：`PROXY@` 节点追加 `&chain=%F0%9F%94%80%20%E4%B8%AD%E8%BD%AC%E4%BB%A3%E7%90%86`（`🔀 中转代理`）
-5. **输出**：全部节点合并，重新 base64 编码返回
-
-**字段原则：除节点名外，所有参数原样透传，不做任何字段修改或增删。**
+参数 `&force=1` 对所有需要缓存的端点有效，跳过 KV 读取强制拉取上游。
 
 ---
 
-## `/config` 配置生成逻辑
+## UA 分流规则
 
-1. **基础配置**：从 GitHub 拉取 `shadowrocket/full.conf`（含 General、DNS、Rule 等段），KV 缓存 30 天
-2. **`[Proxy]` 段**：清空，节点由 `/sub` 订阅提供，不在 config 中内嵌
-3. **`[Proxy Group]` 段**：在 full.conf 基础上 patch，不修改原始文件
-
-### 策略组 patch 规则
-
-对每一个含 `policy-regex-filter=` 的策略组行，按以下规则修改过滤器：
-
-| 条件 | 处理 |
-|---|---|
-| `filter=.*` | 不变（手动选择、VoWiFi 等，可选所有节点） |
-| filter 已含 `PROXY@`/`DIRECT@`/`RELAY@` | 不变（已处理过） |
-| filter 含 `^(?!`（负向前瞻，自动选择/地区节点） | `^(?!` → `^PROXY@(?!`，只匹配 `PROXY@` 节点 |
-| 其他关键词过滤（如游戏节点） | 改为 `^PROXY@.*(原filter)`，只匹配 `PROXY@` 节点 |
-
-### worker 新增策略组
-
-在 `[Proxy Group]` 首行插入：
-```
-🔀 中转代理 = select, 🇭🇰 香港中转, 🇹🇼 台湾中转, ..., DIRECT
+```typescript
+if (/Shadowrocket/i.test(ua)) → 'shadowrocket'
+if (/Surge/i.test(ua))        → 'surge'
+if (/clash|mihomo|stash|meta/i.test(ua)) → 'clash'
+// 未知 UA 默认 → 'shadowrocket'
 ```
 
-末尾追加各地区中转 url-test 分组，过滤器格式：
-```
-^RELAY@(?!.*(排除关键词)).*(地区关键词).*$
-```
-
-### 策略组节点可见范围汇总
-
-| 策略组类型 | 可见节点 |
-|---|---|
-| 自动选择（url-test，无地区） | 仅 `PROXY@` |
-| 地区节点（url-test，香港/台湾/…） | 仅 `PROXY@` |
-| 手动选择 | 全部（`.*`） |
-| VoWiFi | 全部（`.*`） |
-| 中转主组（🔀 中转代理） | 子组（各地区中转） + DIRECT |
-| 地区中转（url-test，香港中转/…） | 仅 `RELAY@` |
+`?target=` 参数优先于 UA。
 
 ---
 
-## 缓存机制
+## 链式代理（chain proxy）设计
 
-- 所有订阅和基础配置通过 KV Namespace（绑定名 `CACHE`）缓存 30 天
-- 成功拉取时写入 KV；拉取失败时回退到 KV 缓存（实现离线容灾）
-- `?force=1` 参数跳过缓存强制刷新
+三端各用原生机制，无需 Worker 做额外路由：
+
+| 客户端 | 落地节点 | 中转节点 | 链式机制 |
+|---|---|---|---|
+| Shadowrocket `/sub` | 名称加 `PROXY@` 前缀，URI 加 `chain=🔀 中转代理` | 名称加 `RELAY@` 前缀 | SR 原生 chain 参数 |
+| Surge | 节点行末加 `, underlying-proxy=🔀 中转代理` | 独立节点行，无 underlying-proxy | Surge 原生 underlying-proxy |
+| Clash | 节点 YAML 加 `dialer-proxy: "🔀 中转代理"` | 独立节点，无 dialer-proxy | Mihomo 原生 dialer-proxy |
+
+不支持 SR chain 的协议（`PROXYPASS_UNSUPPORTED`）在 `/sub` 中改用 `DIRECT@` 前缀。
+
+---
+
+## 缓存键设计
+
+```
+cache:SHA256(url)        ← cachedFetch() 缓存原始内容（30 天）
+ruleset:surge:URL        ← handleRuleset() 缓存 Surge 转换结果（1 天）
+ruleset:shadowrocket:URL ← handleRuleset() 缓存 SR 转换结果（1 天）
+```
+
+`refresh=surge` 时：刷新 raw cache，同时删除 `ruleset:surge:*` 强制下次重新转换。
+
+---
+
+## 规则集 URL 格式
+
+```
+/ruleset/{index}-{slug}?t=surge|shadowrocket
+```
+
+- `index`：`full.ini` 中 URL 型 ruleset 的 1-based 序号（跳过 `[]` 内联规则）
+- `slug`：上游文件名去扩展名后的小写连字符形式（`Sony.list` → `sony`）
+- 路由匹配：`/^\/ruleset\/(\d+)(?:-[^/?]*)?$/`，只用前缀数字做查找
+
+---
+
+## 如何新增客户端
+
+以新增 **QuantumultX** 为例，完整步骤：
+
+### 1. 新建 `src/quantumultx.ts`
+
+参考 `surge.ts` 结构：
+
+```typescript
+import { Env } from './types.js';
+import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni, rulesetSlug } from './ini.js';
+import { fetchSubLines } from './cache.js';
+import { parseProxiesFromSubscription, ParsedProxy } from './proxy.js';
+
+export async function generateQuantumultX(env: Env, selfBase: string, force = false): Promise<string> {
+  const [ini, template, landingLines, relayLines] = await Promise.all([...]);
+  // 生成 [server_local] / [filter_remote] / [policy] 等段
+  return result;
+}
+```
+
+### 2. 扩展 `src/proxy.ts`
+
+`toQuantumultXLine(proxy: ParsedProxy): string | null` 函数，输出 QX 代理行格式：
+
+```
+vmess=host:port, method=none, password=uuid, fast-open=false, udp-relay=true, tag=NodeName
+```
+
+### 3. 扩展 `src/types.ts`
+
+```typescript
+export type ClientTarget = 'shadowrocket' | 'surge' | 'clash' | 'quantumultx';
+```
+
+在 `SURGE_SUPPORTED_TYPES` 旁边按需增加：
+```typescript
+export const QX_SUPPORTED_TYPES = new Set(['ss', 'vmess', 'vless', 'trojan', 'hy2']);
+```
+
+### 4. 扩展 `src/ruleset.ts`
+
+`convertRulesetContent` 已按 `ClientTarget` 分支，添加 `quantumultx` 分支：
+- QX filter remote 格式与 Surge 规则类型基本兼容，可共用 SURGE 的转换逻辑
+
+### 5. 添加模板（如需）
+
+在仓库根目录 `quantumultx/template.conf` 放静态段（General、DNS 等），加 `{{POLICY_SECTION}}`、`{{FILTER_SECTION}}` 占位符。Worker 运行时拉取此文件，与 `REPO_BASE_URL` 拼接。
+
+### 6. 更新 `src/index.ts`
+
+```typescript
+// UA 检测
+if (/QuantumultX/i.test(ua)) return 'quantumultx';
+
+// 路由
+if (target === 'quantumultx') {
+  const config = await generateQuantumultX(env, selfBase, force);
+  return new Response(config, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="MySub.conf"',
+    },
+  });
+}
+```
+
+### 7. 更新 `src/status.ts`
+
+`inScope` 函数中为新客户端添加刷新范围：
+
+```typescript
+if (scope === 'quantumultx') return label === 'full.ini' || label.includes('quantumultx/template') || isSub || isRuleset;
+```
+
+### 8. 部署
+
+```sh
+cd worker
+npx wrangler deploy
+```
 
 ---
 
 ## Secrets 配置
 
-通过 `wrangler secret put` 配置：
+通过 `wrangler secret put <NAME>` 设置，不提交到代码：
 
 | 变量 | 说明 |
 |---|---|
-| `SECRET_KEY` | URL 鉴权参数 `?key=` |
-| `PROXY_SUBS` | 代理订阅 URL，逗号分隔，无 UA 下载 |
-| `RELAY_SUBS` | 中转订阅 URL，逗号分隔，无 UA 下载 |
+| `SECRET_KEY` | URL 鉴权 `?key=` |
+| `PROXY_SUBS` | 逗号分隔的落地代理订阅 URL（标准 base64 URI 格式） |
+| `RELAY_SUBS` | 逗号分隔的中转节点订阅 URL（同格式，可选） |
 
-可选环境变量（`wrangler.toml [vars]`）：
+可选 `wrangler.toml [vars]`：
 
-| 变量 | 说明 |
-|---|---|
-| `BASE_CONFIG_URL` | 自定义基础 conf URL，默认用 GitHub 上的 `shadowrocket/full.conf` |
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `REPO_BASE_URL` | `https://raw.githubusercontent.com/monlor/subconverter-rules/main/` | 运行时拉取仓库文件的 base URL |
+| `SURGE_INTERFACE` | 无 | Surge 默认出口网卡（如 `en0`） |
 
 ---
 
-## Shadowrocket 使用方式
+## 本地开发
 
-1. **导入配置**：设置 → 配置文件 → 从 `/config?key=xxx` 下载
-2. **导入订阅**：首页 → 添加订阅 → `/sub?key=xxx`
-3. **强制刷新**：在 URL 末尾加 `&force=1`
+```sh
+cd worker
+npm install
+npx wrangler dev
+```
+
+`.dev.vars` 填写本地测试用 secrets：
+```
+SECRET_KEY=test
+PROXY_SUBS=https://...
+RELAY_SUBS=https://...
+```
+
+---
+
+## 关键约束
+
+- `full.ini` 里的 `(?i)` 正则前缀是 Python/PCRE 语法，JS 中用 `toJsRegex()` 转换（在 `clash.ts`）。各处 `new RegExp(pattern, 'i')` 之前需先调用。
+- `gh.monlor.com/` 代理前缀由 `cache.ts` 的 `normalizeUrl()` 自动剥离，`full.ini` 内的 ruleset URL 不需要手动修改。
+- Clash rule-providers 直接指向上游 URL，不经过 `/ruleset/` 端点，Worker 无需缓存转换结果。
+- 规则集转换缓存（`ruleset:target:URL`）TTL 为 1 天；原始内容缓存（`cache:SHA256`）TTL 为 30 天。刷新时先更新原始缓存，再删除转换缓存。
