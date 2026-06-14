@@ -274,5 +274,8 @@ export async function generateSurge(env: Env, selfBase: string, force = false): 
     result = result.replace(ph, value);
   }
 
-  return result.trimEnd() + '\n';
+  const configUrl = `${selfBase}/config${env.SECRET_KEY ? `?key=${env.SECRET_KEY}` : ''}${env.SECRET_KEY ? '&' : '?'}target=surge`;
+  const managedConfig = `#!MANAGED-CONFIG ${configUrl} interval=43200 strict=true`;
+
+  return managedConfig + '\n' + result.trimEnd() + '\n';
 }
