@@ -2,6 +2,7 @@
  * Proxy URI parser and format converter.
  * Supports: ss, ssr, vmess, vless, trojan, hysteria2 (hy2), tuic
  */
+import { SURGE_SUPPORTED_TYPES } from './types.js';
 
 export interface ParsedProxy {
   name: string;
@@ -397,6 +398,7 @@ export function parseProxiesFromSubscription(content: string): ParsedProxy[] {
 // ─── Surge format ─────────────────────────────────────────────────────────────
 
 export function toSurgeLine(proxy: ParsedProxy, underlyingProxy?: string): string | null {
+  if (!SURGE_SUPPORTED_TYPES.has(proxy.type)) return null;
   const chain = underlyingProxy ? `, underlying-proxy=${underlyingProxy}` : '';
   const udp = proxy.udp !== false ? ', udp-relay=true' : '';
 

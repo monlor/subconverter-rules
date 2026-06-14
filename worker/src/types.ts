@@ -17,6 +17,14 @@ export const PROXYPASS_UNSUPPORTED = new Set([
   'wireguard', 'hysteria', 'hysteria2', 'hy2', 'tuic', 'juicity', 'anytls',
 ]);
 
+// Per-client supported proxy types (based on subconverter reference implementation)
+// Surge: no native VLESS/TUIC/SSR support
+export const SURGE_SUPPORTED_TYPES = new Set(['ss', 'vmess', 'trojan', 'hy2']);
+// Clash/Mihomo: full protocol support
+export const CLASH_SUPPORTED_TYPES = new Set(['ss', 'ssr', 'vmess', 'vless', 'trojan', 'hy2', 'tuic']);
+// Shadowrocket: full protocol support
+export const SHADOWROCKET_SUPPORTED_TYPES = new Set(['ss', 'ssr', 'vmess', 'vless', 'trojan', 'hy2', 'tuic']);
+
 export const EXCLUDED_NODE_PATTERN = '家宽|5G网络|星链|住宅|游戏|抓包|HOME|GAME|FORWARD|实验';
 
 export const DEFAULT_REPO_BASE_URL =
