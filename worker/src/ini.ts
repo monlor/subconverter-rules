@@ -60,3 +60,9 @@ export function parseProxyGroups(ini: string): ProxyGroup[] {
 export function urlRuleSets(rulesets: RuleSet[]): RuleSet[] {
   return rulesets.filter(r => !r.target.startsWith('[]'));
 }
+
+/** Derive a short slug from a ruleset URL for use in /ruleset/{index}-{slug} paths. */
+export function rulesetSlug(url: string): string {
+  const filename = url.split('/').pop() ?? '';
+  return filename.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}

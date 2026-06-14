@@ -14,8 +14,8 @@ export default {
     const key = url.searchParams.get('key');
     const force = url.searchParams.get('force') === '1';
 
-    // /ruleset/:index is public (no auth)
-    const rulesetMatch = url.pathname.match(/^\/ruleset\/(\d+)$/);
+    // /ruleset/:index[-name] is public (no auth)
+    const rulesetMatch = url.pathname.match(/^\/ruleset\/(\d+)(?:-[^/?]*)?$/);
     if (rulesetMatch) {
       return handleRulesetRequest(env, parseInt(rulesetMatch[1], 10), url, force);
     }

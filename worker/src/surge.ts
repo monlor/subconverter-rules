@@ -1,5 +1,5 @@
 import { Env, RuleSet, ProxyGroup, EXCLUDED_NODE_PATTERN } from './types.js';
-import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni } from './ini.js';
+import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni, rulesetSlug } from './ini.js';
 import { fetchSubLines } from './cache.js';
 import { parseProxiesFromSubscription, toSurgeLine, ParsedProxy } from './proxy.js';
 
@@ -224,7 +224,7 @@ function convertRulesetLine(rs: RuleSet, urlIndex: number, selfBase: string): st
     return [ruleType, ...parts.slice(1), policy].join(',');
   }
   const opts = options.filter(Boolean);
-  return ['RULE-SET', `${selfBase}/ruleset/${urlIndex}?t=surge`, policy, ...opts].join(',');
+  return ['RULE-SET', `${selfBase}/ruleset/${urlIndex}-${rulesetSlug(target)}?t=surge`, policy, ...opts].join(',');
 }
 
 function generateRuleSection(rulesets: RuleSet[], selfBase: string): string {

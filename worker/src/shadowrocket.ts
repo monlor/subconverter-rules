@@ -1,5 +1,5 @@
 import { Env, RuleSet, ProxyGroup, EXCLUDED_NODE_PATTERN } from './types.js';
-import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni } from './ini.js';
+import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni, rulesetSlug } from './ini.js';
 
 const FULL_NODE_SELECT = new Set(['🚀 手动选择', '📶 VoWiFi']);
 const RELAY_GROUP = '🔀 中转代理';
@@ -95,7 +95,7 @@ function generateRuleSection(rulesets: RuleSet[], selfBase: string): string {
       const parts = inline.split(',').map(p => p.trim()).filter(Boolean);
       lines.push(parts[0].toUpperCase() === 'FINAL' ? `FINAL,${policy}` : [...parts, policy].join(','));
     } else {
-      lines.push(`RULE-SET,${selfBase}/ruleset/${urlIdx++}?t=shadowrocket,${policy}`);
+      lines.push(`RULE-SET,${selfBase}/ruleset/${urlIdx++}-${rulesetSlug(rs.target)}?t=shadowrocket,${policy}`);
     }
   }
   return lines.join('\n');
