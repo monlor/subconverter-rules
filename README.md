@@ -7,60 +7,41 @@ https://raw.githubusercontent.com/monlor/subconverter-rules/main/full.ini
 * 支持Tiktok，Netflix等流媒体规则
 * 支持ChatGPT规则
 
-## clash规则
+## 通用订阅转换服务 mysub.monlor.com
 
-生成 Mihomo/Clash 配置：
+`worker/` 是部署在 `mysub.monlor.com` 的 Cloudflare Worker，运行时直接读取仓库 `full.ini` 生成三端配置，无需本地脚本。
 
-```sh
-python3 scripts/generate_clash.py
-```
+### 使用方法
 
-私有订阅测试写入 `clash/full.local.yaml`，不要提交真实订阅 URL：
-
-```sh
-python3 scripts/generate_clash.py \
-  --agent-test \
-  --proxy-url "$PROXY_CLASH_URL" \
-  --relay-url "$RELAY_CLASH_URL"
-```
-
-`--relay-url` 可选。传入后会通过 Mihomo `dialer-proxy` 生成链式代理；proxy provider 使用在线 `url`，不写本地 `path`。直连策略直接使用 `DIRECT`。
-
-链式代理的 `↔️ 中转网卡` 会生成常见接口名：
-
-* macOS/iOS：`en0`-`en10`、`bridge0`、`pdp_ip0`
-* Linux：`eth0`、`eth1`、`wlan0`、`wlan1`、`enp0s3`、`enp1s0`、`enp2s0`、`ens3`、`ens18`、`ens33`、`wlp2s0`、`wlp3s0`、`usb0`
-* Android：`wlan0`、`rmnet_data0`、`rmnet_data1`、`ccmni0`、`ccmni1`、`usb0`
-* Windows：`Ethernet`、`Ethernet 2`、`Wi-Fi`、`WLAN`、`以太网`、`以太网 2`
-
-* DOMAIN-SUFFIX：域名后缀匹配
-* DOMAIN：域名匹配
-* DOMAIN-KEYWORD：域名关键字匹配
-* IP-CIDR：IP 段匹配
-* SRC-IP-CIDR：源 IP 段匹配
-* GEOIP：GEOIP 数据库（国家代码）匹配
-* DST-PORT：目标端口匹配
-* SRC-PORT：源端口匹配
-* PROCESS-NAME：源进程名匹配
-* RULE-SET：Rule Provider 规则匹配
-* MATCH：全匹配
+配置地址（Shadowrocket/Surge/Clash 客户端自动识别）：
 
 ```
-##- SCRIPT,quic,REJECT #shortcuts rule
-##- SCRIPT,time-limit,REJECT #shortcuts rule
-
-##- PROCESS-NAME,curl,DIRECT #匹配路由自身进程(curl直连)
-##- DOMAIN-SUFFIX,google.com,Proxy #匹配域名后缀(交由Proxy代理服务器组)
-##- DOMAIN-KEYWORD,google,Proxy #匹配域名关键字(交由Proxy代理服务器组)
-##- DOMAIN,google.com,Proxy #匹配域名(交由Proxy代理服务器组)
-##- DOMAIN-SUFFIX,ad.com,REJECT #匹配域名后缀(拒绝)
-##- IP-CIDR,127.0.0.0/8,DIRECT #匹配数据目标IP(直连)
-##- SRC-IP-CIDR,192.168.1.201/32,DIRECT #匹配数据发起IP(直连)
-##- DST-PORT,80,DIRECT #匹配数据目标端口(直连)
-##- SRC-PORT,7777,DIRECT #匹配数据源端口(直连)
-
-##排序在上的规则优先生效,如添加（去除规则前的#号）：
-##IP段：192.168.1.2-192.168.1.200 直连
-##- SRC-IP-CIDR,192.168.1.2/31,DIRECT
-##- SRC-IP-CIDR,192.168.1.4/30,DIRECT
+https://mysub.monlor.com/config?key=<SECRET_KEY>
 ```
+
+强制指定客户端：
+
+```
+https://mysub.monlor.com/config?key=<KEY>&target=surge
+https://mysub.monlor.com/config?key=<KEY>&target=clash
+```
+
+Shadowrocket 节点订阅（仅 SR 使用，含 PROXY@/DIRECT@/RELAY@ 链式代理）：
+
+```
+https://mysub.monlor.com/sub?key=<KEY>
+```
+
+### 链式代理支持
+
+| 客户端 | 机制 |
+|---|---|
+| Shadowrocket | 节点 URI `chain=🔀 中转代理` + RELAY@ 中转组 |
+| Surge | `policy-path` + `external-policy-modifier=underlying-proxy=🔀 中转代理` |
+| Clash/Mihomo | `proxy-providers` + `dialer-proxy: 🔀 中转代理` |
+
+### 规则文件
+
+`full.ini` 是所有规则组和策略组的唯一真源，本地自定义规则集放在 `rules/` 目录。
+
+详细开发说明见 `AGENTS.md`。

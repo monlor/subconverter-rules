@@ -8,5 +8,6 @@ full.conf
 full.yaml
 full.json
 __pycache__
-shadowrocket/worker/node_modules
-shadowrocket/worker/dist
+worker/node_modules
+worker/dist
+worker/.wrangler

@@ -4,9 +4,8 @@
 
 - `full.ini` is the source of truth for `ruleset=` order and `custom_proxy_group=` definitions.
 - Local custom rulesets live under `rules/`.
-- `shadowrocket/full.conf`, `shadowrocket/rules/`, `surge/full.conf`, and `surge/rules/` are generated outputs from `full.ini` and ruleset sources.
-- Do not make Shadowrocket-only rule or group edits as the primary fix when the same behavior belongs in `full.ini` or `rules/`.
-- Do not commit real subscription URLs or tokens. Generate private Surge configs to `surge/full.local.conf`.
+- Configs are generated **at runtime** by the `worker/` Cloudflare Worker — there are no pre-built output files to edit or commit.
+- Do not commit real subscription URLs or tokens.
 
 ## Rule Changes
 
@@ -16,114 +15,88 @@
 - Keep existing policy names, group names, and rule ordering unless the task explicitly asks for a rename or reorder.
 - Prefer adding domain/IP/process rules to the appropriate `rules/` file instead of adding inline rules directly to `full.ini`, unless an explicit ordering override is required.
 
-## Shadowrocket Generation
+## Worker
 
-- After changing `full.ini`, run:
+The `worker/` directory is a Cloudflare Worker that serves `mysub.monlor.com`. It reads `full.ini`, `shadowrocket/lazy_group.conf`, and `surge/template.conf` from the repo at runtime and generates configs for all three clients on demand.
 
-```sh
-rtk python3 scripts/generate_shadowrocket.py
-```
+### Endpoints
 
-- After changing files under `rules/`, refresh the generated Shadowrocket rulesets before finishing. Use a full refresh when rule content must be regenerated:
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /config?key=KEY` | required | Auto-detect client by UA; returns Shadowrocket/Surge/Clash config |
+| `GET /config?key=KEY&target=surge` | required | Force a specific client (`shadowrocket`, `surge`, `clash`) |
+| `GET /sub?key=KEY` | required | Shadowrocket subscription (PROXY@/DIRECT@/RELAY@ prefixed nodes) |
+| `GET /ruleset/<N>?t=shadowrocket\|surge` | public | Converted ruleset for inline RULE-SET references |
 
-```sh
-rtk python3 scripts/generate_shadowrocket.py --refresh-rules
-```
+Add `&force=1` to bypass the 30-day KV cache.
 
-- If network fetches fail during a full refresh, delete only the affected generated file under `shadowrocket/rules/` and rerun the normal generator so local-source rules can be rebuilt without forcing every remote ruleset.
+### User-Agent detection
 
-## Surge Generation
+| UA contains | Client |
+|---|---|
+| `Shadowrocket` | Shadowrocket `.conf` |
+| `Surge` | Surge `.conf` |
+| `clash` / `mihomo` / `stash` / `meta` | Clash/Mihomo `.yaml` |
+| unknown | Shadowrocket (default) |
 
-- After changing `full.ini`, run:
+### Chain proxy (链式代理)
 
-```sh
-rtk python3 scripts/generate_surge.py
-```
+Each client uses its native mechanism:
+- **Shadowrocket**: nodes get `chain=🔀 中转代理` URI param; relay nodes get `RELAY@` prefix and feed region url-test groups.
+- **Surge**: `代理节点 policy-path=<PROXY_SUB_URL>` with `external-policy-modifier="underlying-proxy=🔀 中转代理"`. Relay nodes from `RELAY_SUB_URL`.
+- **Clash/Mihomo**: `proxy-providers.landing` with `override.dialer-proxy: 🔀 中转代理`. Relay nodes from `RELAY_SUB_URL`.
 
-- Default user-facing Surge output is `surge/full.conf`.
-- Static Surge sections such as `[General]`, `[Host]`, `[Header Rewrite]`, `[SSID Setting]`, and `[MITM]` live in `surge/template.conf`; dynamic `[Proxy]`, `[Proxy Group]`, and `[Rule]` sections are injected by `scripts/generate_surge.py`.
-- Agent validation or private airport subscription tests must write to the ignored local output with `--agent-test`:
-
-```sh
-rtk python3 scripts/generate_surge.py \
-  --agent-test \
-  --proxy-url "$PROXY_SURGE_URL" \
-  --relay-url "$RELAY_SURGE_URL" \
-  --interface en0
-```
-
-- `--output` can still be used for an explicit custom path.
-
-- The Surge generator emits shared `[General]` defaults for DNS, encrypted DNS, VIF excluded routes, LAN proxy listening ports, and GeoIP database URL.
-- `--relay-url` is optional. Omit it when no relay subscription region groups should be generated.
-- `--interface` is optional. When set, it injects that default egress interface into generated external subscription policies and creates the selectable `🌐 默认网卡` direct policy. When omitted, `🌐 默认网卡` and external `interface=...` modifiers are not generated.
-- `📱 蜂窝流量`, `代理节点`, and `中转节点` are always generated with `hidden=true`.
-- Bottom regional node groups and relay test groups are hidden by default. Use `--no-hide-node-groups` to show those generated groups. The generated hidden parameter is `hidden=true`.
-- Surge output maps `full.ini` `url-test` groups to Surge `smart` groups and omits `url`, `interval`, and `tolerance` from those groups; keep `full.ini` as `url-test` for Shadowrocket compatibility.
-- `↔️ 中转网卡` is always generated as a selectable group backed by `[Proxy]` direct policies named `🛜 网卡 <interface>` for `en0` through `en10`, `utun0` through `utun5`, and `pdp_ip0`.
-- `🇨🇳 中国直连` follows `full.ini` order and defaults to `DIRECT`; it does not inject cellular or relay interface policies.
-- Surge `select` groups keep `DIRECT` first only when it is the default option. If `DIRECT` is present but not default, the generator moves it to the bottom.
-- Common macOS interface names:
-  - `en0`: usually Wi-Fi or the primary default interface.
-  - `en1`/`en2`/`en3`: often Thunderbolt bridge or additional built-in/virtual Ethernet interfaces.
-  - `en4` through `en10`: often USB-C Ethernet, USB tethering, or extra adapters.
-  - `bridge0`: bridge interface, commonly used by virtualization or Thunderbolt bridge.
-  - `awdl0`/`llw0`: Apple Wireless Direct Link interfaces, not recommended as egress.
-  - `utun0` through `utun5`: VPN/tunnel interfaces, usable only when intentionally binding a tunnel.
-  - `pdp_ip0`: cellular data interface on iOS and some tethering environments.
-  - `lo0`: loopback, not usable as internet egress.
-- Check the current Mac interfaces with:
+### Local development
 
 ```sh
-networksetup -listallhardwareports
-ifconfig
+cd worker
+npm install
+npx wrangler dev
 ```
 
-- After changing files under `rules/`, refresh the generated Surge rulesets when rule content must be regenerated:
+Test all three clients:
+```sh
+curl 'http://127.0.0.1:8787/config?key=KEY' -H 'User-Agent: Shadowrocket' | head -30
+curl 'http://127.0.0.1:8787/config?key=KEY' -H 'User-Agent: Surge'        | head -30
+curl 'http://127.0.0.1:8787/config?key=KEY' -H 'User-Agent: clash.meta'   | head -30
+curl 'http://127.0.0.1:8787/ruleset/1?t=shadowrocket'                      | head -10
+```
+
+### Deploy
 
 ```sh
-rtk python3 scripts/generate_surge.py --refresh-rules
+cd worker
+npx wrangler deploy
 ```
+
+Set secrets before deploying:
+```sh
+npx wrangler secret put SECRET_KEY
+npx wrangler secret put PROXY_SUBS      # comma-separated, for /sub merging
+npx wrangler secret put RELAY_SUBS      # comma-separated, for /sub merging
+npx wrangler secret put PROXY_SUB_URL   # single URL for Surge/Clash provider
+npx wrangler secret put RELAY_SUB_URL   # single URL for Surge/Clash provider (optional)
+npx wrangler secret put SURGE_INTERFACE # e.g. en0 (optional)
+```
+
+### Static template files
+
+These files are fetched at runtime by the Worker and must stay in the repo:
+- `shadowrocket/lazy_group.conf` — Shadowrocket `[General]`/`[Host]`/`[MITM]` template
+- `surge/template.conf` — Surge static sections with `{{PROXY_SECTION}}` / `{{PROXY_GROUP_SECTION}}` / `{{RULE_SECTION}}` placeholders
 
 ## Validation
 
-- Run a quick syntax check after generator changes or when touching generated output:
+After editing `full.ini`, `shadowrocket/lazy_group.conf`, or `surge/template.conf`, test locally:
 
 ```sh
-rtk python3 -m py_compile scripts/generate_shadowrocket.py
-rtk python3 -m py_compile scripts/generate_surge.py
-rtk python3 -m py_compile scripts/generate_clash.py
+cd worker && npx wrangler dev
+curl 'http://127.0.0.1:8787/config?key=KEY' -H 'User-Agent: Shadowrocket'
+curl 'http://127.0.0.1:8787/config?key=KEY&target=surge'
+curl 'http://127.0.0.1:8787/config?key=KEY&target=clash' | python3 -c "import yaml,sys;yaml.safe_load(sys.stdin);print('YAML OK')"
 ```
 
-- Verify generated output before finalizing:
-  - `shadowrocket/full.conf` keeps the same enabled `ruleset=` order and policy names from `full.ini`.
-  - `shadowrocket/rules/` contains converted ruleset files for all URL rulesets.
-  - No incompatible rule syntax such as `DEST-PORT` remains in generated Shadowrocket rules.
-  - `surge/full.conf` keeps the same enabled `ruleset=` order and policy names from `full.ini`.
-  - `surge/rules/` contains converted ruleset files for all URL rulesets.
-  - Surge generated rules preserve `DEST-PORT` and do not use Shadowrocket-only `DST-PORT`.
-  - `clash/full.yaml` keeps the same enabled `ruleset=` order and policy names from `full.ini`.
-  - `git diff --check` passes.
-
-## Clash/Mihomo Generation
-
-- After changing `full.ini`, generate the public Clash/Mihomo config with:
-
-```sh
-rtk python3 scripts/generate_clash.py
-```
-
-- Default user-facing Clash output is `clash/full.yaml`.
-- Agent validation or private subscription tests must write to the ignored local output with `--agent-test`:
-
-```sh
-rtk python3 scripts/generate_clash.py \
-  --agent-test \
-  --proxy-url "$PROXY_CLASH_URL" \
-  --relay-url "$RELAY_CLASH_URL"
-```
-
-- `--relay-url` is optional. When set, the landing provider gets `override.dialer-proxy: 🔀 中转代理` and the generated config adds hidden relay provider/region groups.
-- Proxy providers use online `url` fields and intentionally omit local `path`; Mihomo manages provider cache filenames automatically.
-- Clash `↔️ 中转网卡` uses generated `type: direct` proxies with common macOS/iOS, Linux, Android, and Windows interface names. It intentionally omits `utun*` tunnel interfaces.
-- Direct choices in `full.ini` should use the literal `DIRECT` policy instead of a generated global direct group.
+Check that:
+- SR output has `[Proxy]` empty, `🔀 中转代理` group at top of `[Proxy Group]`, RULE-SET lines point to `/ruleset/N?t=shadowrocket`.
+- Surge output uses `policy-path` + `underlying-proxy` for chain proxy, `smart` groups for url-test, RULE-SET lines point to `/ruleset/N?t=surge`.
+- Clash output has valid YAML, `dialer-proxy: "🔀 中转代理"` in proxy-providers (when RELAY_SUB_URL set), `rule-providers` with upstream URLs.
