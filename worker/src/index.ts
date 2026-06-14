@@ -4,6 +4,7 @@ import { generateShadowrocket } from './shadowrocket.js';
 import { generateSurge } from './surge.js';
 import { generateClash } from './clash.js';
 import { handleRuleset } from './ruleset.js';
+import { handleStatus } from './status.js';
 import { parseRuleSets, urlRuleSets, fetchFullIni } from './ini.js';
 
 export default {
@@ -26,6 +27,10 @@ export default {
 
     if (url.pathname === '/sub') return handleSub(env, force);
     if (url.pathname === '/config') return handleConfig(env, selfBase, request, url, force);
+    if (url.pathname === '/status') {
+      const refresh = url.searchParams.get('refresh') === '1';
+      return handleStatus(env, selfBase, refresh);
+    }
 
     return new Response(helpText(selfBase), {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -143,17 +148,20 @@ Endpoints:
   GET /sub?key=<KEY>                       Shadowrocket subscription (PROXY@/DIRECT@/RELAY@ prefixed)
   GET /config?key=<KEY>                    Auto-detect client by User-Agent and return config
   GET /config?key=<KEY>&target=<CLIENT>    Force client: shadowrocket | surge | clash
+  GET /status?key=<KEY>                    Clients list + cache status (JSON)
+  GET /status?key=<KEY>&refresh=1          Refresh upstream cache (keeps cache on failure)
   GET /ruleset/<N>?t=shadowrocket|surge    Converted ruleset (public, no key required)
 
-  Add &force=1 to bypass cache.
+  Add &force=1 to bypass cache on /config and /sub.
 
 User-Agent auto-detection:
   Shadowrocket -> .conf (nodes from /sub, relay chain via RELAY@ groups)
-  Surge        -> .conf (external policy-path provider, relay via underlying-proxy)
-  clash/mihomo -> .yaml (proxy-providers, dialer-proxy chain)
+  Surge        -> .conf (inline nodes with underlying-proxy chain)
+  clash/mihomo -> .yaml (inline proxies with dialer-proxy chain)
   unknown      -> shadowrocket (default)
 
 Config URL: ${base}/config?key=KEY
 Sub URL (Shadowrocket only): ${base}/sub?key=KEY
+Status: ${base}/status?key=KEY
 `;
 }

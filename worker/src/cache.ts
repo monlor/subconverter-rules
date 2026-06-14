@@ -72,7 +72,7 @@ export async function fetchSubLines(
   return lines;
 }
 
-async function cacheKey(url: string): Promise<string> {
+export async function cacheKey(url: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url));
   return 'cache:' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
