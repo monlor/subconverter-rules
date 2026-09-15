@@ -1,0 +1,17 @@
+{
+  "name": "subhub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.js",
+    "start": "node dist/server.js",
+    "dev": "tsc --watch",
+    "vendor": "node scripts/vendor-rules.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

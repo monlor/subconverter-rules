@@ -1,0 +1,10 @@
+worker
+server/node_modules
+server/dist
+vendor
+.git
+.claude
+.env
+.env.*
+*.md
+node_modules

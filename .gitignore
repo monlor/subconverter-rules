@@ -1,4 +1,6 @@
 .DS_Store
+.env
+.env.*
 node_modules
 package-lock.json
 .spec-workflow
@@ -11,3 +13,7 @@ __pycache__
 worker/node_modules
 worker/dist
 worker/.wrangler
+.atlas/
+server/dist
+vendor
+!server/package-lock.json

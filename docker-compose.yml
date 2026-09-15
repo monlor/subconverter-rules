@@ -1,0 +1,13 @@
+services:
+  subhub:
+    build: .
+    image: ghcr.io/monlor/subhub:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "${PORT:-3000}"
+      SECRET_KEY: "${SECRET_KEY:?Set SECRET_KEY before starting subhub}"
+      PROXY_SUBS: "${PROXY_SUBS:?Set PROXY_SUBS before starting subhub}"
+      RELAY_SUBS: "${RELAY_SUBS:-}"
+      SURGE_INTERFACE: "${SURGE_INTERFACE:-}"
