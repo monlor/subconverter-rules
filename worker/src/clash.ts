@@ -1,6 +1,6 @@
 import { Env, RuleSet, ProxyGroup, EXCLUDED_NODE_PATTERN } from './types.js';
 import { parseRuleSets, parseProxyGroups, fetchFullIni } from './ini.js';
-import { fetchSubLines } from './cache.js';
+import { fetchSubLines, parseSubCacheTtl } from './cache.js';
 import { parseProxiesFromSubscription, toClashProxyYaml, ParsedProxy } from './proxy.js';
 
 const LANDING_GROUP = '代理节点';
@@ -294,10 +294,11 @@ function generateRules(rulesets: RuleSet[], names: Map<RuleSet, string>): string
 export async function generateClash(env: Env, force = false): Promise<string> {
   const hasRelaySubs = Boolean((env.RELAY_SUBS ?? '').trim());
 
+  const ttl = parseSubCacheTtl(env.SUB_CACHE_TTL);
   const [ini, landingLines, relayLines] = await Promise.all([
     fetchFullIni(env, force),
-    fetchSubLines(env.CACHE, env.PROXY_SUBS ?? '', force),
-    hasRelaySubs ? fetchSubLines(env.CACHE, env.RELAY_SUBS ?? '', force) : Promise.resolve([] as string[]),
+    fetchSubLines(env.CACHE, env.PROXY_SUBS ?? '', force, ttl),
+    hasRelaySubs ? fetchSubLines(env.CACHE, env.RELAY_SUBS ?? '', force, ttl) : Promise.resolve([] as string[]),
   ]);
 
   const landingProxies = parseProxiesFromSubscription(landingLines.join('\n'));

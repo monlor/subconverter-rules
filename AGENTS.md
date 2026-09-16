@@ -28,7 +28,7 @@ The `worker/` directory is a Cloudflare Worker that serves `mysub.monlor.com`. I
 | `GET /sub?key=KEY` | required | Shadowrocket subscription (PROXY@/DIRECT@/RELAY@ prefixed nodes) |
 | `GET /ruleset/<N>?t=shadowrocket\|surge` | public | Converted ruleset for inline RULE-SET references |
 
-Add `&force=1` to bypass the 30-day KV cache.
+Add `&force=1` to bypass KV cache. Subscription bodies (`PROXY_SUBS`/`RELAY_SUBS`) refetch after `SUB_CACHE_TTL` seconds (default 3600); fetch failure keeps the last good copy.
 
 ### User-Agent detection
 
@@ -77,6 +77,11 @@ npx wrangler secret put RELAY_SUBS      # comma-separated, for /sub merging
 npx wrangler secret put PROXY_SUB_URL   # single URL for Surge/Clash provider
 npx wrangler secret put RELAY_SUB_URL   # single URL for Surge/Clash provider (optional)
 npx wrangler secret put SURGE_INTERFACE # e.g. en0 (optional)
+```
+
+Optional `wrangler.toml [vars]`:
+```
+SUB_CACHE_TTL=3600   # seconds before PROXY_SUBS/RELAY_SUBS are refetched; 0 = every request
 ```
 
 ### Static template files

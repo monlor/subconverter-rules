@@ -13,7 +13,7 @@
 
 运行期（零网络，除订阅拉取）
     full.ini + rules/ + vendor/gh/ ──local-source.ts──→ 按 UA/target 分流生成配置
-    PROXY_SUBS / RELAY_SUBS ──cache.ts（联网 + 内存 TTL 缓存）──→ 节点列表
+    PROXY_SUBS / RELAY_SUBS ──cache.ts（联网 + SUB_CACHE_TTL 刷新，失败用旧值）──→ 节点列表
 ```
 
 ## 文件职责
@@ -76,8 +76,8 @@ npm run vendor        # 首次或规则更新后，联网抓取外部规则到 .
 PORT=3001 SECRET_KEY=test PROXY_SUBS=<订阅地址> node dist/server.js
 ```
 
-`PROXY_SUBS` 必须设置；多个订阅地址支持逗号或换行分隔。默认读取内存缓存，只有
-`force=1` 时主动刷新，刷新失败会回退到尚未过期的缓存。
+`PROXY_SUBS` 必须设置；多个订阅地址支持逗号或换行分隔。`SUB_CACHE_TTL`（秒，默认
+3600）到期后下次请求再拉；`force=1` 立即刷新。正文不过期，拉取失败回退旧缓存。
 
 运行回归测试：
 

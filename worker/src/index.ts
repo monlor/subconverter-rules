@@ -159,6 +159,7 @@ Endpoints:
   GET /ruleset/<N>?t=shadowrocket|surge    Converted ruleset (public, no key required)
 
   Add &force=1 to bypass cache and fetch fresh data on /config, /sub, and /ruleset.
+  PROXY_SUBS/RELAY_SUBS refetch after SUB_CACHE_TTL seconds (default 3600); fetch failure keeps the last copy.
   Add &info=proxy (default) or &info=relay to control which subscription's traffic/expiry info is shown.
 
 User-Agent auto-detection:

@@ -11,3 +11,4 @@ services:
       PROXY_SUBS: "${PROXY_SUBS:?Set PROXY_SUBS before starting subhub}"
       RELAY_SUBS: "${RELAY_SUBS:-}"
       SURGE_INTERFACE: "${SURGE_INTERFACE:-}"
+      SUB_CACHE_TTL: "${SUB_CACHE_TTL:-3600}"

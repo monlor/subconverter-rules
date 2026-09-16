@@ -7,6 +7,8 @@ export interface Env {
   REPO_BASE_URL?: string;
   // Optional Surge egress interface (e.g. "en0")
   SURGE_INTERFACE?: string;
+  // Seconds before PROXY_SUBS/RELAY_SUBS are refetched (default 3600). 0 = always refetch.
+  SUB_CACHE_TTL?: string;
   CACHE?: KVNamespace;
 }
 

@@ -31,7 +31,7 @@ PROXY_SUBS / RELAY_SUBS（secrets）
 | `index.ts` | 路由 + UA 分流 + 鉴权，所有端点入口 |
 | `types.ts` | `Env` 接口、常量（`PROXYPASS_UNSUPPORTED`、`EXCLUDED_NODE_PATTERN`） |
 | `ini.ts` | 解析 `full.ini`（`parseRuleSets`、`parseProxyGroups`、`rulesetSlug`） |
-| `cache.ts` | `cachedFetch`（KV 缓存 30 天 + 失败回退）、`fetchSubLines`、`cacheKey` |
+| `cache.ts` | `cachedFetch`（规则 30 天）；订阅 `SUB_CACHE_TTL` 到期再拉、失败回退旧值；`fetchSubLines`、`cacheKey` |
 | `proxy.ts` | 解析代理 URI（ss/ssr/vmess/vless/trojan/hy2/tuic），输出 Surge 行或 Clash YAML |
 | `ruleset.ts` | `/ruleset/:index-:name` 端点，拉取上游规则集并按客户端类型转换 |
 | `shadowrocket.ts` | 生成 SR `.conf`：读 `shadowrocket/template.conf`，注入策略组和规则 |
@@ -87,7 +87,8 @@ if (/clash|mihomo|stash|meta/i.test(ua)) → 'clash'
 ## 缓存键设计
 
 ```
-cache:SHA256(url)        ← cachedFetch() 缓存原始内容（30 天）
+cache:SHA256(url)        ← 原始内容（规则 30 天；PROXY_SUBS/RELAY_SUBS 正文不过期）
+subfresh:SHA256(url)     ← 订阅上次成功拉取的 unix 秒，用来判断 SUB_CACHE_TTL
 ruleset:surge:URL        ← handleRuleset() 缓存 Surge 转换结果（1 天）
 ruleset:shadowrocket:URL ← handleRuleset() 缓存 SR 转换结果（1 天）
 ```
@@ -208,6 +209,7 @@ npx wrangler deploy
 |---|---|---|
 | `REPO_BASE_URL` | `https://raw.githubusercontent.com/monlor/subconverter-rules/main/` | 运行时拉取仓库文件的 base URL |
 | `SURGE_INTERFACE` | 无 | Surge 默认出口网卡（如 `en0`） |
+| `SUB_CACHE_TTL` | `3600` | `PROXY_SUBS`/`RELAY_SUBS` 刷新间隔（秒）。`0` = 每次请求都拉；失败仍用旧值 |
 
 ---
 
@@ -233,4 +235,4 @@ RELAY_SUBS=https://...
 - `full.ini` 里的 `(?i)` 正则前缀是 Python/PCRE 语法，JS 中用 `toJsRegex()` 转换（在 `clash.ts`）。各处 `new RegExp(pattern, 'i')` 之前需先调用。
 - `gh.monlor.com/` 代理前缀由 `cache.ts` 的 `normalizeUrl()` 自动剥离，`full.ini` 内的 ruleset URL 不需要手动修改。
 - Clash rule-providers 直接指向上游 URL，不经过 `/ruleset/` 端点，Worker 无需缓存转换结果。
-- 规则集转换缓存（`ruleset:target:URL`）TTL 为 1 天；原始内容缓存（`cache:SHA256`）TTL 为 30 天。刷新时先更新原始缓存，再删除转换缓存。
+- 规则集转换缓存（`ruleset:target:URL`）TTL 为 1 天；规则原始内容缓存 30 天；`PROXY_SUBS`/`RELAY_SUBS` 正文不过期，`SUB_CACHE_TTL`（默认 3600 秒）到期后再拉，失败一直用旧值。刷新时先更新原始缓存，再删除转换缓存。

@@ -1,33 +1,50 @@
 import { MemoryKV } from './memory-kv.js';
 import { normalizeUrl } from './local-source.js';
 
-const CACHE_TTL = 86400 * 30;
 const USERINFO_TTL = 3600;
+const DEFAULT_SUB_CACHE_TTL = 3600;
 
 const SUB_UA = 'ClashForAndroid/2.5.12';
+
+export function parseSubCacheTtl(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_SUB_CACHE_TTL;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_SUB_CACHE_TTL;
+  return Math.floor(n);
+}
+
+function subFreshKey(key: string): string {
+  return 'subfresh:' + key.slice(6);
+}
 
 export async function getSubContent(
   kv: MemoryKV,
   sub: string,
   force = false,
+  ttl = DEFAULT_SUB_CACHE_TTL,
 ): Promise<string | null> {
   if (!sub.startsWith('http://') && !sub.startsWith('https://')) {
     return sub.trim() || null;
   }
-  return cachedFetch(kv, sub, force);
+  return cachedFetch(kv, sub, force, ttl);
 }
 
 export async function cachedFetch(
   kv: MemoryKV,
   url: string,
   force = false,
+  ttl = DEFAULT_SUB_CACHE_TTL,
 ): Promise<string | null> {
   const fetchUrl = normalizeUrl(url);
   const key = await cacheKey(fetchUrl);
+  const fKey = subFreshKey(key);
 
-  if (!force) {
-    const cached = await kv.get(key);
-    if (cached !== null) return cached;
+  if (!force && ttl > 0) {
+    const [cached, fetchedAt] = await Promise.all([kv.get(key), kv.get(fKey)]);
+    if (cached !== null && fetchedAt !== null) {
+      const age = Date.now() / 1000 - Number(fetchedAt);
+      if (Number.isFinite(age) && age < ttl) return cached;
+    }
   }
 
   let fresh: string | null = null;
@@ -44,7 +61,8 @@ export async function cachedFetch(
   } catch {}
 
   if (ok && fresh !== null) {
-    await kv.put(key, fresh, { expirationTtl: CACHE_TTL });
+    await kv.put(key, fresh);
+    await kv.put(fKey, String(Math.floor(Date.now() / 1000)));
     if (uiHeader) {
       await kv.put('userinfo:' + key.slice(6), uiHeader, { expirationTtl: USERINFO_TTL });
     }
@@ -73,10 +91,11 @@ export async function fetchSubLines(
   kv: MemoryKV,
   subs: string,
   force = false,
+  ttl = DEFAULT_SUB_CACHE_TTL,
 ): Promise<string[]> {
   const lines: string[] = [];
   for (const sub of splitSubscriptions(subs)) {
-    const text = await getSubContent(kv, sub, force);
+    const text = await getSubContent(kv, sub, force, ttl);
     if (!text) continue;
     const content = decodeBase64(text) ?? text;
     for (const line of content.split(/[\r\n]+/)) {

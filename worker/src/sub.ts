@@ -1,13 +1,14 @@
 import { Env, PROXYPASS_UNSUPPORTED } from './types.js';
-import { getSubContent, decodeBase64 } from './cache.js';
+import { getSubContent, decodeBase64, parseSubCacheTtl } from './cache.js';
 
 const CHAIN = '🔀 中转代理';
 
 export async function generateSub(env: Env, force = false): Promise<string> {
   const lines: string[] = [];
 
+  const ttl = parseSubCacheTtl(env.SUB_CACHE_TTL);
   for (const sub of splitSubs(env.PROXY_SUBS)) {
-    for (const uri of await fetchURIs(env, sub, force)) {
+    for (const uri of await fetchURIs(env, sub, force, ttl)) {
       const proto = getProto(uri);
       if (proto && PROXYPASS_UNSUPPORTED.has(proto)) {
         lines.push(rename(uri, 'DIRECT@'));
@@ -18,7 +19,7 @@ export async function generateSub(env: Env, force = false): Promise<string> {
   }
 
   for (const sub of splitSubs(env.RELAY_SUBS)) {
-    for (const uri of await fetchURIs(env, sub, force)) {
+    for (const uri of await fetchURIs(env, sub, force, ttl)) {
       lines.push(rename(uri, 'RELAY@'));
     }
   }
@@ -26,8 +27,8 @@ export async function generateSub(env: Env, force = false): Promise<string> {
   return btoa(unescape(encodeURIComponent(lines.join('\n'))));
 }
 
-async function fetchURIs(env: Env, sub: string, force: boolean): Promise<string[]> {
-  const text = await getSubContent(env.CACHE, sub, force);
+async function fetchURIs(env: Env, sub: string, force: boolean, ttl: number): Promise<string[]> {
+  const text = await getSubContent(env.CACHE, sub, force, ttl);
   if (!text) return [];
   const content = decodeBase64(text) ?? text;
   return content.split(/[\r\n]+/).map(l => l.trim()).filter(l => l.includes('://'));

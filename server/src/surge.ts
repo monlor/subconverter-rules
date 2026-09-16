@@ -1,6 +1,6 @@
 import { Env, RuleSet, ProxyGroup, EXCLUDED_NODE_PATTERN, SURGE_SUPPORTED_TYPES } from './types.js';
 import { fetchRepoFile, parseRuleSets, parseProxyGroups, fetchFullIni, rulesetSlug } from './ini.js';
-import { fetchSubLines } from './cache.js';
+import { fetchSubLines, parseSubCacheTtl } from './cache.js';
 import { parseProxiesFromSubscription, toSurgeLine, ParsedProxy } from './proxy.js';
 
 const FULL_NODE_SELECT = new Set(['🚀 手动选择', '📶 VoWiFi']);
@@ -243,11 +243,12 @@ function generateRuleSection(rulesets: RuleSet[], selfBase: string): string {
 export async function generateSurge(env: Env, selfBase: string, force = false): Promise<string> {
   const hasRelaySubs = Boolean((env.RELAY_SUBS ?? '').trim());
 
+  const ttl = parseSubCacheTtl(env.SUB_CACHE_TTL);
   const [ini, template, landingLines, relayLines] = await Promise.all([
     fetchFullIni(env, force),
     fetchRepoFile(env, 'surge/template.conf', force),
-    fetchSubLines(env.CACHE, env.PROXY_SUBS ?? '', force),
-    hasRelaySubs ? fetchSubLines(env.CACHE, env.RELAY_SUBS ?? '', force) : Promise.resolve([] as string[]),
+    fetchSubLines(env.CACHE, env.PROXY_SUBS ?? '', force, ttl),
+    hasRelaySubs ? fetchSubLines(env.CACHE, env.RELAY_SUBS ?? '', force, ttl) : Promise.resolve([] as string[]),
   ]);
 
   const landingProxies = parseProxiesFromSubscription(landingLines.join('\n'));

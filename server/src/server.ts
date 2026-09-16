@@ -38,6 +38,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     PROXY_SUBS: proxySubs,
     RELAY_SUBS: source.RELAY_SUBS?.trim() ?? '',
     SURGE_INTERFACE: source.SURGE_INTERFACE,
+    SUB_CACHE_TTL: source.SUB_CACHE_TTL?.trim() || undefined,
     CACHE: new MemoryKV(),
   };
 }
