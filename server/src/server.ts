@@ -33,13 +33,15 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const proxySubs = source.PROXY_SUBS?.trim();
   if (!proxySubs) throw new Error('PROXY_SUBS is required');
 
+  const cacheDir = source.CACHE_DIR?.trim() || resolve('data/cache');
+
   return {
     SECRET_KEY: source.SECRET_KEY ?? '',
     PROXY_SUBS: proxySubs,
     RELAY_SUBS: source.RELAY_SUBS?.trim() ?? '',
     SURGE_INTERFACE: source.SURGE_INTERFACE,
     SUB_CACHE_TTL: source.SUB_CACHE_TTL?.trim() || undefined,
-    CACHE: new MemoryKV(),
+    CACHE: new MemoryKV(cacheDir),
   };
 }
 

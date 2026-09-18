@@ -13,12 +13,13 @@ RUN npm run build
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000
+ENV NODE_ENV=production PORT=3000 CACHE_DIR=/app/data/cache
 COPY full.ini ./
 COPY rules ./rules
 COPY shadowrocket ./shadowrocket
 COPY surge ./surge
 COPY --from=vendor /repo/vendor ./vendor
 COPY --from=build /app/server/dist ./server/dist
+VOLUME ["/app/data"]
 EXPOSE 3000
 CMD ["node", "server/dist/server.js"]

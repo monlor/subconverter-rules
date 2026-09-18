@@ -10,10 +10,9 @@ full.conf
 full.yaml
 full.json
 __pycache__
-worker/node_modules
-worker/dist
-worker/.wrangler
 .atlas/
 server/dist
+server/data
+data
 vendor
 !server/package-lock.json

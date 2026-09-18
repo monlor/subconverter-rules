@@ -144,7 +144,7 @@ your own subscription URLs (PROXY_SUBS/RELAY_SUBS) are fetched live.
 Endpoints:
   GET /config?key=KEY[&target=shadowrocket|surge|clash][&force=1]
   GET /sub?key=KEY[&info=proxy|relay][&force=1]
-  PROXY_SUBS/RELAY_SUBS refetch after SUB_CACHE_TTL seconds (default 3600); fetch failure keeps the last copy.
+  PROXY_SUBS/RELAY_SUBS refetch after SUB_CACHE_TTL seconds (default 3600); fetch failure / empty body keeps the last copy on disk.
   GET /status?key=KEY
   GET /ruleset/{index}?t=shadowrocket|surge
 

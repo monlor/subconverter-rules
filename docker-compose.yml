@@ -12,3 +12,9 @@ services:
       RELAY_SUBS: "${RELAY_SUBS:-}"
       SURGE_INTERFACE: "${SURGE_INTERFACE:-}"
       SUB_CACHE_TTL: "${SUB_CACHE_TTL:-3600}"
+      CACHE_DIR: "${CACHE_DIR:-/app/data/cache}"
+    volumes:
+      - subhub-cache:/app/data
+
+volumes:
+  subhub-cache:

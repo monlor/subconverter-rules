@@ -6,6 +6,9 @@ const DEFAULT_SUB_CACHE_TTL = 3600;
 
 const SUB_UA = 'ClashForAndroid/2.5.12';
 
+const PROXY_URI =
+  /(?:^|[\n\r])[ \t]*(?:ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|wireguard|anytls|juicity):\/\//i;
+
 export function parseSubCacheTtl(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_SUB_CACHE_TTL;
   const n = Number(raw);
@@ -15,6 +18,25 @@ export function parseSubCacheTtl(raw: string | undefined): number {
 
 function subFreshKey(key: string): string {
   return 'subfresh:' + key.slice(6);
+}
+
+export function decodeBase64(text: string): string | null {
+  try {
+    const cleaned = text.trim().replace(/\s+/g, '');
+    const normalized = cleaned.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = atob(padded);
+    return decoded.includes('://') ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the body contains at least one proxy URI (plaintext or base64). */
+export function isUsableSubBody(text: string): boolean {
+  if (!text || !text.trim()) return false;
+  const content = decodeBase64(text) ?? text;
+  return PROXY_URI.test(content);
 }
 
 export async function getSubContent(
@@ -52,7 +74,7 @@ export async function cachedFetch(
   let ok = false;
 
   try {
-    const resp = await fetch(fetchUrl);
+    const resp = await fetch(fetchUrl, { headers: { 'User-Agent': SUB_UA } });
     if (resp.ok) {
       uiHeader = resp.headers.get('subscription-userinfo');
       fresh = await resp.text();
@@ -60,7 +82,7 @@ export async function cachedFetch(
     }
   } catch {}
 
-  if (ok && fresh !== null) {
+  if (ok && fresh !== null && isUsableSubBody(fresh)) {
     await kv.put(key, fresh);
     await kv.put(fKey, String(Math.floor(Date.now() / 1000)));
     if (uiHeader) {
@@ -70,21 +92,14 @@ export async function cachedFetch(
   }
 
   const cached = await kv.get(key);
-  if (cached !== null) return cached;
+  if (cached !== null) {
+    if (!ok || !isUsableSubBody(fresh ?? '')) {
+      console.warn(`subhub: fetch failed or empty for ${fetchUrl}, using cached subscription`);
+    }
+    return cached;
+  }
 
   return null;
-}
-
-export function decodeBase64(text: string): string | null {
-  try {
-    const cleaned = text.trim().replace(/\s+/g, '');
-    const normalized = cleaned.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const decoded = atob(padded);
-    return decoded.includes('://') ? decoded : null;
-  } catch {
-    return null;
-  }
 }
 
 export async function fetchSubLines(
