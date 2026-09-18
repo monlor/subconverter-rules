@@ -185,8 +185,7 @@ test('cachedFetch and fetchUserinfo send Shadowrocket User-Agent', async () => {
     await fetchUserinfo(kv, 'https://example.test/info', true);
     assert.equal(userAgents.length, 2);
     for (const ua of userAgents) {
-      assert.match(ua, /Shadowrocket/i);
-      assert.doesNotMatch(ua, /ClashForAndroid/i);
+      assert.equal(ua, 'Shadowrocket/2592');
     }
   } finally {
     globalThis.fetch = originalFetch;

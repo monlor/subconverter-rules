@@ -4,7 +4,7 @@ import { normalizeUrl } from './local-source.js';
 const USERINFO_TTL = 3600;
 const DEFAULT_SUB_CACHE_TTL = 3600;
 
-const SUB_UA = 'Shadowrocket/2060 CFNetwork/1410.0.3 Darwin/22.6.0';
+const SUB_UA = 'Shadowrocket/2592';
 
 const PROXY_URI =
   /(?:^|[\n\r])[ \t]*(?:ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|wireguard|anytls|juicity):\/\//i;
