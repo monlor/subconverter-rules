@@ -34,12 +34,17 @@ function subDiagnosticKey(key: string): string {
   return 'subdiagnostic:' + key.slice(6);
 }
 
+function decodeBase64Utf8(padded: string): string {
+  const binary = atob(padded);
+  return new TextDecoder().decode(Uint8Array.from(binary, c => c.charCodeAt(0)));
+}
+
 export function decodeBase64(text: string): string | null {
   try {
     const cleaned = text.trim().replace(/\s+/g, '');
     const normalized = cleaned.replace(/-/g, '+').replace(/_/g, '/');
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const decoded = atob(padded);
+    const decoded = decodeBase64Utf8(padded);
     return decoded.includes('://') ? decoded : null;
   } catch {
     return null;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { cachedFetch, fetchSubLines, fetchUserinfo, getSubscriptionDiagnostic, parseSubCacheTtl, cacheKey } from '../dist/cache.js';
+import { cachedFetch, decodeBase64, fetchSubLines, fetchUserinfo, getSubscriptionDiagnostic, parseSubCacheTtl, cacheKey } from '../dist/cache.js';
 import { MemoryKV } from '../dist/memory-kv.js';
 
 const NODE = (name) => `trojan://pw@${name}.test:443#${name}`;
@@ -191,6 +191,15 @@ test('cachedFetch and fetchUserinfo send Shadowrocket User-Agent', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('decodeBase64 restores UTF-8 node names from subscription payloads', () => {
+  const line = 'hysteria2://secret@de.example.test:30000?insecure=0#[Hy2]🇩🇪 德国 O01';
+  const encoded = Buffer.from(line, 'utf8').toString('base64');
+  const decoded = decodeBase64(encoded);
+  assert.equal(decoded, line);
+  assert.match(decoded, /德国/);
+  assert.doesNotMatch(decoded, /å¾·å›½/);
 });
 
 test('parseSubCacheTtl defaults to 3600', () => {
