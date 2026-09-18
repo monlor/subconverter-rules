@@ -3,7 +3,7 @@ import { fetchFullIni, parseRuleSets, urlRuleSets } from './ini.js';
 import { resolveLocalPath, ROOT } from './local-source.js';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { splitSubscriptions } from './cache.js';
+import { getSubscriptionDiagnostic, splitSubscriptions, SubscriptionDiagnostic, SubscriptionFetchOutcome } from './cache.js';
 
 const VENDOR_ROOT = join(ROOT, 'vendor') + '/';
 
@@ -16,23 +16,31 @@ interface RuleItem {
   mtime: string | null;
 }
 
+interface SubscriptionItem extends Omit<Partial<SubscriptionDiagnostic>, 'outcome' | 'cached'> {
+  index: number;
+  outcome: SubscriptionFetchOutcome | 'not_fetched';
+  cached: boolean;
+}
+
 export async function handleStatus(
   env: Env,
   selfBase: string,
   authKey: string,
 ): Promise<Response> {
-  const k = authKey ? `?key=${authKey}` : '';
-
   const clients = [
-    { name: 'Shadowrocket', url: `${selfBase}/config${k}` },
-    { name: 'Shadowrocket nodes (/sub)', url: `${selfBase}/sub${k}` },
-    { name: 'Surge', url: `${selfBase}/config${k}${k ? '&' : '?'}target=surge` },
-    { name: 'Clash / Mihomo', url: `${selfBase}/config${k}${k ? '&' : '?'}target=clash` },
+    { name: 'Shadowrocket', path: '/config' },
+    { name: 'Shadowrocket nodes (/sub)', path: '/sub' },
+    { name: 'Surge', path: '/config?target=surge' },
+    { name: 'Clash / Mihomo', path: '/config?target=clash' },
   ];
 
   const subs = {
     PROXY_SUBS: splitSubscriptions(env.PROXY_SUBS).length,
     RELAY_SUBS: splitSubscriptions(env.RELAY_SUBS).length,
+  };
+  const subscriptions = {
+    PROXY_SUBS: await subscriptionStatus(env, env.PROXY_SUBS),
+    RELAY_SUBS: await subscriptionStatus(env, env.RELAY_SUBS),
   };
 
   let rulesets: RuleItem[] = [];
@@ -71,6 +79,7 @@ export async function handleStatus(
       mode: 'docker (all rules built into the image, no runtime GitHub access)',
       clients,
       subs,
+      subscriptions,
       rulesets: {
         total: rulesets.length,
         missing,
@@ -80,4 +89,11 @@ export async function handleStatus(
     }, null, 2),
     { headers: { 'Content-Type': 'application/json; charset=utf-8' } },
   );
+}
+
+async function subscriptionStatus(env: Env, raw: string): Promise<SubscriptionItem[]> {
+  return Promise.all(splitSubscriptions(raw).map(async (url, index) => {
+    const diagnostic = await getSubscriptionDiagnostic(env.CACHE, url);
+    return diagnostic ? { index: index + 1, ...diagnostic } : { index: index + 1, outcome: 'not_fetched', cached: false };
+  }));
 }

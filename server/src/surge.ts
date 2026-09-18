@@ -247,8 +247,8 @@ export async function generateSurge(env: Env, selfBase: string, force = false): 
   const [ini, template, landingLines, relayLines] = await Promise.all([
     fetchFullIni(env, force),
     fetchRepoFile(env, 'surge/template.conf', force),
-    fetchSubLines(env.CACHE, env.PROXY_SUBS ?? '', force, ttl),
-    hasRelaySubs ? fetchSubLines(env.CACHE, env.RELAY_SUBS ?? '', force, ttl) : Promise.resolve([] as string[]),
+    fetchSubLines(env.CACHE, env.PROXY_SUBS ?? '', force, ttl, 'PROXY_SUBS'),
+    hasRelaySubs ? fetchSubLines(env.CACHE, env.RELAY_SUBS ?? '', force, ttl, 'RELAY_SUBS') : Promise.resolve([] as string[]),
   ]);
 
   const landingProxies = parseProxiesFromSubscription(landingLines.join('\n'));

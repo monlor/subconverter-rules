@@ -37,6 +37,7 @@
 - TTL 内直接返回磁盘/内存中的上次成功正文；TTL 到期或 `force=1` 才再拉。
 - 拉取失败回退旧值。正文本身不过期。
 - `CACHE_DIR`（默认 `/app/data/cache`）把 KV 写到 `kv.json`，容器重启后仍能回退。Compose 已挂 `subhub-cache` volume。
+- `/status?key=KEY` 按订阅源序号显示最近一次拉取结果、HTTP 状态和是否有缓存；日志不输出订阅 URL 或 token。
 
 ## 规则 URL → 本地文件映射（`local-source.ts`）
 

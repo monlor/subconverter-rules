@@ -9,6 +9,16 @@ const SUB_UA = 'ClashForAndroid/2.5.12';
 const PROXY_URI =
   /(?:^|[\n\r])[ \t]*(?:ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|wireguard|anytls|juicity):\/\//i;
 
+export type SubscriptionFetchOutcome = 'success' | 'http_error' | 'network_error' | 'empty_body' | 'no_proxy_uri';
+
+export interface SubscriptionDiagnostic {
+  lastAttemptAt: string;
+  outcome: SubscriptionFetchOutcome;
+  cached: boolean;
+  httpStatus?: number;
+  errorType?: string;
+}
+
 export function parseSubCacheTtl(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_SUB_CACHE_TTL;
   const n = Number(raw);
@@ -18,6 +28,10 @@ export function parseSubCacheTtl(raw: string | undefined): number {
 
 function subFreshKey(key: string): string {
   return 'subfresh:' + key.slice(6);
+}
+
+function subDiagnosticKey(key: string): string {
+  return 'subdiagnostic:' + key.slice(6);
 }
 
 export function decodeBase64(text: string): string | null {
@@ -44,11 +58,12 @@ export async function getSubContent(
   sub: string,
   force = false,
   ttl = DEFAULT_SUB_CACHE_TTL,
+  source = 'subscription',
 ): Promise<string | null> {
   if (!sub.startsWith('http://') && !sub.startsWith('https://')) {
     return sub.trim() || null;
   }
-  return cachedFetch(kv, sub, force, ttl);
+  return cachedFetch(kv, sub, force, ttl, source);
 }
 
 export async function cachedFetch(
@@ -56,6 +71,7 @@ export async function cachedFetch(
   url: string,
   force = false,
   ttl = DEFAULT_SUB_CACHE_TTL,
+  source = 'subscription',
 ): Promise<string | null> {
   const fetchUrl = normalizeUrl(url);
   const key = await cacheKey(fetchUrl);
@@ -71,31 +87,47 @@ export async function cachedFetch(
 
   let fresh: string | null = null;
   let uiHeader: string | null = null;
-  let ok = false;
+  let outcome: SubscriptionFetchOutcome = 'network_error';
+  let httpStatus: number | undefined;
+  let errorType: string | undefined;
 
   try {
     const resp = await fetch(fetchUrl, { headers: { 'User-Agent': SUB_UA } });
-    if (resp.ok) {
+    httpStatus = resp.status;
+    if (!resp.ok) {
+      outcome = 'http_error';
+    } else {
       uiHeader = resp.headers.get('subscription-userinfo');
       fresh = await resp.text();
-      ok = true;
+      outcome = !fresh.trim() ? 'empty_body' : isUsableSubBody(fresh) ? 'success' : 'no_proxy_uri';
     }
-  } catch {}
+  } catch (error) {
+    errorType = error instanceof Error ? error.name : 'Error';
+  }
 
-  if (ok && fresh !== null && isUsableSubBody(fresh)) {
+  if (outcome === 'success' && fresh !== null) {
     await kv.put(key, fresh);
     await kv.put(fKey, String(Math.floor(Date.now() / 1000)));
     if (uiHeader) {
       await kv.put('userinfo:' + key.slice(6), uiHeader, { expirationTtl: USERINFO_TTL });
     }
-    return fresh;
   }
 
   const cached = await kv.get(key);
+  const diagnostic: SubscriptionDiagnostic = {
+    lastAttemptAt: new Date().toISOString(),
+    outcome,
+    cached: cached !== null,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+    ...(errorType === undefined ? {} : { errorType }),
+  };
+  await kv.put(subDiagnosticKey(key), JSON.stringify(diagnostic));
+
+  if (outcome === 'success') return fresh;
+
+  // Keep subscription credentials out of logs; source is only a configured group and index.
+  console.warn('subhub: subscription fetch failed', { source, ...diagnostic });
   if (cached !== null) {
-    if (!ok || !isUsableSubBody(fresh ?? '')) {
-      console.warn(`subhub: fetch failed or empty for ${fetchUrl}, using cached subscription`);
-    }
     return cached;
   }
 
@@ -107,10 +139,11 @@ export async function fetchSubLines(
   subs: string,
   force = false,
   ttl = DEFAULT_SUB_CACHE_TTL,
+  source = 'subscription',
 ): Promise<string[]> {
   const lines: string[] = [];
-  for (const sub of splitSubscriptions(subs)) {
-    const text = await getSubContent(kv, sub, force, ttl);
+  for (const [index, sub] of splitSubscriptions(subs).entries()) {
+    const text = await getSubContent(kv, sub, force, ttl, `${source}[${index + 1}]`);
     if (!text) continue;
     const content = decodeBase64(text) ?? text;
     for (const line of content.split(/[\r\n]+/)) {
@@ -124,6 +157,21 @@ export async function fetchSubLines(
 export async function cacheKey(url: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url));
   return 'cache:' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function getSubscriptionDiagnostic(
+  kv: MemoryKV,
+  url: string,
+): Promise<SubscriptionDiagnostic | null> {
+  const value = await kv.get(subDiagnosticKey(await cacheKey(normalizeUrl(url))));
+  if (!value) return null;
+  try {
+    const diagnostic = JSON.parse(value) as SubscriptionDiagnostic;
+    if (!diagnostic || typeof diagnostic.lastAttemptAt !== 'string' || typeof diagnostic.outcome !== 'string') return null;
+    return diagnostic;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchUserinfo(

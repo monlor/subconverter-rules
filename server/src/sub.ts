@@ -7,8 +7,8 @@ export async function generateSub(env: Env, force = false): Promise<string> {
   const lines: string[] = [];
 
   const ttl = parseSubCacheTtl(env.SUB_CACHE_TTL);
-  for (const sub of splitSubscriptions(env.PROXY_SUBS)) {
-    for (const uri of await fetchURIs(env, sub, force, ttl)) {
+  for (const [index, sub] of splitSubscriptions(env.PROXY_SUBS).entries()) {
+    for (const uri of await fetchURIs(env, sub, force, ttl, `PROXY_SUBS[${index + 1}]`)) {
       const proto = getProto(uri);
       if (proto && PROXYPASS_UNSUPPORTED.has(proto)) {
         lines.push(rename(uri, 'DIRECT@'));
@@ -18,8 +18,8 @@ export async function generateSub(env: Env, force = false): Promise<string> {
     }
   }
 
-  for (const sub of splitSubscriptions(env.RELAY_SUBS)) {
-    for (const uri of await fetchURIs(env, sub, force, ttl)) {
+  for (const [index, sub] of splitSubscriptions(env.RELAY_SUBS).entries()) {
+    for (const uri of await fetchURIs(env, sub, force, ttl, `RELAY_SUBS[${index + 1}]`)) {
       lines.push(rename(uri, 'RELAY@'));
     }
   }
@@ -27,8 +27,8 @@ export async function generateSub(env: Env, force = false): Promise<string> {
   return btoa(unescape(encodeURIComponent(lines.join('\n'))));
 }
 
-async function fetchURIs(env: Env, sub: string, force: boolean, ttl: number): Promise<string[]> {
-  const text = await getSubContent(env.CACHE, sub, force, ttl);
+async function fetchURIs(env: Env, sub: string, force: boolean, ttl: number, source: string): Promise<string[]> {
+  const text = await getSubContent(env.CACHE, sub, force, ttl, source);
   if (!text) return [];
   const content = decodeBase64(text) ?? text;
   return content.split(/[\r\n]+/).map(l => l.trim()).filter(l => l.includes('://'));

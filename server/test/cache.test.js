@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { cachedFetch, fetchSubLines, parseSubCacheTtl, cacheKey } from '../dist/cache.js';
+import { cachedFetch, fetchSubLines, getSubscriptionDiagnostic, parseSubCacheTtl, cacheKey } from '../dist/cache.js';
 import { MemoryKV } from '../dist/memory-kv.js';
 
 const NODE = (name) => `trojan://pw@${name}.test:443#${name}`;
@@ -65,6 +65,42 @@ test('cachedFetch keeps stale subscription when upstream returns empty or non-no
   }
 });
 
+test('cachedFetch records sanitized diagnostics for every upstream result', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    switch (new URL(String(url)).hostname) {
+      case 'http.test': return new Response('down', { status: 503 });
+      case 'empty.test': return new Response('', { status: 200 });
+      case 'invalid.test': return new Response('<html>blocked</html>', { status: 200 });
+      case 'network.test': throw new TypeError('fetch failed');
+      default: return new Response(NODE('alive'), { status: 200 });
+    }
+  };
+
+  try {
+    const kv = new MemoryKV();
+    for (const [url, outcome] of [
+      ['https://http.test/sub', 'http_error'],
+      ['https://empty.test/sub', 'empty_body'],
+      ['https://invalid.test/sub', 'no_proxy_uri'],
+      ['https://network.test/sub', 'network_error'],
+      ['https://success.test/sub', 'success'],
+    ]) {
+      await cachedFetch(kv, url, true);
+      const diagnostic = await getSubscriptionDiagnostic(kv, url);
+      assert.equal(diagnostic?.outcome, outcome);
+      assert.equal(diagnostic?.cached, outcome === 'success');
+    }
+
+    const httpDiagnostic = await getSubscriptionDiagnostic(kv, 'https://http.test/sub');
+    assert.equal(httpDiagnostic?.httpStatus, 503);
+    const networkDiagnostic = await getSubscriptionDiagnostic(kv, 'https://network.test/sub');
+    assert.equal(networkDiagnostic?.errorType, 'TypeError');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('cachedFetch refetches after SUB_CACHE_TTL and keeps body on failure', async () => {
   const originalFetch = globalThis.fetch;
   const responses = [NODE('first'), NODE('second'), null];
@@ -85,6 +121,24 @@ test('cachedFetch refetches after SUB_CACHE_TTL and keeps body on failure', asyn
     await kv.put('subfresh:' + key.slice(6), String(Math.floor(Date.now() / 1000) - 10));
     assert.equal(await cachedFetch(kv, url, false, 5), NODE('second'));
     assert.equal(calls, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('cachedFetch preserves the last fetch diagnostic when TTL serves cache', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => new Response(NODE(`cache-${++calls}`), { status: 200 });
+
+  try {
+    const kv = new MemoryKV();
+    const url = 'https://example.test/cache';
+    await cachedFetch(kv, url, false, 3600);
+    const first = await getSubscriptionDiagnostic(kv, url);
+    await cachedFetch(kv, url, false, 3600);
+    assert.equal(calls, 1);
+    assert.deepEqual(await getSubscriptionDiagnostic(kv, url), first);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -78,6 +78,8 @@ docker run -d --restart unless-stopped -p 3000:3000 \
 
 使用 Compose 时，`SECRET_KEY` 和 `PROXY_SUBS` 必须显式设置。多个订阅地址可以用逗号或换行分隔。
 
+订阅没有节点时，访问 `/status?key=<SECRET_KEY>` 查看每个订阅源的最近拉取结果、HTTP 状态和缓存回退状态；响应不会返回订阅 URL 或密钥。容器日志会记录同样的脱敏失败原因。
+
 ### 更新规则
 
 规则内容在构建镜像时固化。改了 `full.ini`、`rules/*.ini` 或需要同步新的外部规则集后，重新构建镜像：
