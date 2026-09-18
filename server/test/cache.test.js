@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { cachedFetch, fetchSubLines, getSubscriptionDiagnostic, parseSubCacheTtl, cacheKey } from '../dist/cache.js';
+import { cachedFetch, fetchSubLines, fetchUserinfo, getSubscriptionDiagnostic, parseSubCacheTtl, cacheKey } from '../dist/cache.js';
 import { MemoryKV } from '../dist/memory-kv.js';
 
 const NODE = (name) => `trojan://pw@${name}.test:443#${name}`;
@@ -165,6 +165,31 @@ test('MemoryKV reloads last good subscription from disk after restart', async ()
   } finally {
     globalThis.fetch = originalFetch;
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cachedFetch and fetchUserinfo send Shadowrocket User-Agent', async () => {
+  const originalFetch = globalThis.fetch;
+  const userAgents = [];
+  globalThis.fetch = async (_url, init) => {
+    userAgents.push(new Headers(init?.headers).get('User-Agent'));
+    return new Response(NODE('ua'), {
+      status: 200,
+      headers: { 'subscription-userinfo': 'upload=1; download=2; total=3; expire=4' },
+    });
+  };
+
+  try {
+    const kv = new MemoryKV();
+    await cachedFetch(kv, 'https://example.test/sub', true);
+    await fetchUserinfo(kv, 'https://example.test/info', true);
+    assert.equal(userAgents.length, 2);
+    for (const ua of userAgents) {
+      assert.match(ua, /Shadowrocket/i);
+      assert.doesNotMatch(ua, /ClashForAndroid/i);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
