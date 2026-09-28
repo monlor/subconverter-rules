@@ -23,6 +23,11 @@ export interface ParsedProxy {
   pluginHost?: string;
   pluginPath?: string;
 
+  // SSR
+  protocol?: string;
+  protocolParam?: string;
+  obfsParam?: string;
+
   // VMess
   alterId?: number;
 
@@ -82,6 +87,19 @@ function boolParam(v: string | null | undefined): boolean | undefined {
   return v === '1' || v.toLowerCase() === 'true';
 }
 
+const SSR_OBFS = new Set(['plain', 'http_simple', 'http_post', 'random_head', 'tls1.2_ticket_auth', 'tls1.2_ticket_fastauth']);
+const SSR_PROTOCOLS = new Set(['origin', 'auth_sha1_v4', 'auth_aes128_md5', 'auth_aes128_sha1', 'auth_chain_a', 'auth_chain_b']);
+
+function ssrObfs(raw: string): string {
+  const name = raw.replace(/_compatible$/, '');
+  return SSR_OBFS.has(name) ? name : 'plain';
+}
+
+function ssrProtocol(raw: string): string {
+  const name = raw.replace(/_compatible$/, '');
+  return SSR_PROTOCOLS.has(name) ? name : 'origin';
+}
+
 // ─── SS parser ───────────────────────────────────────────────────────────────
 // Formats: ss://BASE64(method:password)@host:port[/?plugin=...][#name]
 //          ss://BASE64(method:password@host:port)[#name]   (legacy)
@@ -139,7 +157,7 @@ export function parseSSUri(uri: string): ParsedProxy | null {
     if (queryStr) {
       const params = new URLSearchParams(queryStr);
       const pluginRaw = params.get('plugin') ?? '';
-      if (pluginRaw.includes('obfs')) {
+      if (pluginRaw.includes('obfs-local') || pluginRaw.startsWith('obfs')) {
         const pluginParts = pluginRaw.split(';');
         proxy.plugin = 'obfs';
         for (const p of pluginParts.slice(1)) {
@@ -148,6 +166,8 @@ export function parseSSUri(uri: string): ParsedProxy | null {
           if (k === 'obfs-host') proxy.pluginHost = v;
           if (k === 'obfs-uri') proxy.pluginPath = v;
         }
+        if (proxy.pluginMode == null) proxy.pluginMode = 'http';
+        if (proxy.pluginMode !== 'http' && proxy.pluginMode !== 'tls') return null;
       }
     }
 
@@ -167,14 +187,22 @@ export function parseSSRUri(uri: string): ParsedProxy | null {
 
     const parts = main.split(':');
     if (parts.length < 6) return null;
-    const [server, portStr, , method, , b64pass] = parts;
+    const [server, portStr, protocol, method, obfs, b64pass] = parts;
     const password = safeAtob(b64pass);
 
     const params = new URLSearchParams(queryStr);
     const remarks = params.get('remarks') ?? '';
     const name = remarks ? safeAtob(remarks) : `SSR-${server}`;
+    const obfsParam = params.get('obfsparam') ? safeAtob(params.get('obfsparam')!) : '';
+    const protocolParam = params.get('protoparam') ? safeAtob(params.get('protoparam')!) : '';
 
-    return { name, type: 'ssr', server, port: parsePort(portStr), cipher: method, password, udp: true };
+    const proxy: ParsedProxy = {
+      name, type: 'ssr', server, port: parsePort(portStr), cipher: method, password, udp: true,
+      protocol: ssrProtocol(protocol), obfs: ssrObfs(obfs),
+    };
+    if (obfsParam) proxy.obfsParam = obfsParam;
+    if (protocolParam) proxy.protocolParam = protocolParam;
+    return proxy;
   } catch { return null; }
 }
 
@@ -327,8 +355,11 @@ export function parseHysteria2Uri(uri: string): ParsedProxy | null {
 
     const proxy: ParsedProxy = { name, type: 'hy2', server, port, password: auth, tls: true, udp: true };
     if (sni) proxy.sni = sni;
-    if (obfs) proxy.obfs = obfs;
-    if (obfsPassword) proxy.obfsPassword = obfsPassword;
+    // mihomo only accepts salamander/gecko, and both require a password
+    if ((obfs === 'salamander' || obfs === 'gecko') && obfsPassword) {
+      proxy.obfs = obfs;
+      proxy.obfsPassword = obfsPassword;
+    }
     if (boolParam(params.get('insecure'))) proxy.skipCertVerify = true;
     return proxy;
   } catch { return null; }
@@ -506,8 +537,10 @@ export function toSurgeLine(proxy: ParsedProxy, underlyingProxy?: string): strin
       let line = `${proxy.name} = hysteria2, ${proxy.server}, ${proxy.port}, password=${proxy.password}`;
       if (proxy.sni) line += `, sni=${proxy.sni}`;
       if (proxy.skipCertVerify) line += ', skip-cert-verify=true';
-      if (proxy.obfs === 'salamander') line += ', obfs=salamander';
-      if (proxy.obfsPassword) line += `, obfs-password=${proxy.obfsPassword}`;
+      if (proxy.obfs === 'salamander') {
+        line += ', obfs=salamander';
+        if (proxy.obfsPassword) line += `, obfs-password=${proxy.obfsPassword}`;
+      }
       if (proxy.downloadBw) line += `, download-bandwidth=${proxy.downloadBw}`;
       return line + chain;
     }
@@ -553,11 +586,11 @@ function clashProxyLines(proxy: ParsedProxy, dialerProxy?: string): string[] | n
       push('password', yamlStr(proxy.password ?? ''));
       push('udp', 'true');
       if (proxy.plugin === 'obfs') {
+        const mode = proxy.pluginMode === 'tls' ? 'tls' : 'http';
         push('plugin', 'obfs');
-        const opts = [`  mode: ${proxy.pluginMode ?? 'http'}`];
-        if (proxy.pluginHost) opts.push(`  host: ${yamlStr(proxy.pluginHost)}`);
-        lines.push(`    plugin-opts:`);
-        for (const o of opts) lines.push(`      ${o.trim().split(':')[0]}: ${o.trim().split(':').slice(1).join(':').trim()}`);
+        lines.push('    plugin-opts:');
+        lines.push(`      mode: ${mode}`);
+        if (proxy.pluginHost) lines.push(`      host: ${yamlStr(proxy.pluginHost)}`);
       }
       break;
     }
@@ -569,8 +602,10 @@ function clashProxyLines(proxy: ParsedProxy, dialerProxy?: string): string[] | n
       push('port', String(proxy.port));
       push('cipher', yamlStr(proxy.cipher ?? 'aes-256-cfb'));
       push('password', yamlStr(proxy.password ?? ''));
-      push('protocol', 'origin');
-      push('obfs', 'plain');
+      push('protocol', yamlStr(proxy.protocol || 'origin'));
+      push('obfs', yamlStr(proxy.obfs || 'plain'));
+      if (proxy.protocolParam) push('protocol-param', yamlStr(proxy.protocolParam));
+      if (proxy.obfsParam) push('obfs-param', yamlStr(proxy.obfsParam));
       push('udp', 'true');
       break;
     }
