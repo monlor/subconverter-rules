@@ -333,8 +333,6 @@ export async function generateClash(env: Env, selfBase: string, force = false): 
     '  enhanced-mode: fake-ip',
     '  fake-ip-range: 198.18.0.1/16',
     '  nameserver:',
-    '    - https://dns.alidns.com/dns-query',
-    '  fallback:',
     '    - 223.5.5.5',
     '    - 119.29.29.29',
     'profile:',

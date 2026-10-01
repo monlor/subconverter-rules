@@ -23,5 +23,8 @@ test('router generates all client formats without fetching GitHub', async () => 
     const body = await response.text();
     assert.equal(response.status, 200, path);
     assert.match(body, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), path);
+    if (path.startsWith('/config')) {
+      assert.doesNotMatch(body, /encrypted-dns-server|server:https:\/\/|dns-server\s*=\s*https:\/\/|^\s*- https:\/\/.*dns-query/m, path);
+    }
   }
 });
