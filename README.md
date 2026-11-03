@@ -49,8 +49,9 @@ http://<host>:3000/sub?key=<KEY>
 在 Loon 中导入上面的 `target=loon` 配置地址。沿用 `PROXY_SUBS`（落地）和 `RELAY_SUBS`（中转）；重新构建镜像后生效。
 
 - `🔀 中转代理` 与 Surge 一样是手动选择组：可选 `🇭🇰 香港中转`、`🇸🇬 新加坡中转`、`🇺🇲 美国中转`、`🇯🇵 日本中转` 和 `DIRECT`；仅生成有合格节点的地区组。各地区使用 Loon 原生 `url-test` 自动测速（300 秒，切换容差 50ms），对应 Surge 的 `smart`。没有任何已识别地区时提供 `中转节点` 作为选择入口。
-- `代理节点` 收集落地代理链；`中转节点` 收集中转原始节点。`🚀 手动选择`、`📶 VoWiFi` 与 Surge 一样同时提供落地链和原始中转节点，其他业务/地区组沿用 `full.ini`。
+- Loon 的业务/地区组直接引用落地链名称，不生成冗余的 `代理节点` 集合组；Surge 保留该隐藏集合组供 `include-other-group` 使用。`中转节点` 收集中转原始节点，`🚀 手动选择`、`📶 VoWiFi` 同时提供落地链和原始中转节点，其他业务/地区组沿用 `full.ini`。
 - 选择普通落地名称经过当前选定的中转地区；在 `🔀 中转代理` 里选择 `DIRECT` 时，全部落地跳过中转。直接选择中转原始节点则只使用该节点作为出口。取消 `DIRECT@落地` 等额外选项；`LANDING@` 节点仅用于链内部，不加入代理组。
+- 控制落地链首跳的是 `🔀 中转代理`。当它选择某个地区时，由该地区的测速组选中转；改变 `中转节点` 集合组的选择不会覆盖该地区组。只有中转没有任何已识别地区、总选择指向 `中转节点` 时，该集合组的选择才控制首跳。
 - `RELAY_SUBS` 默认排除名称含 `家宽`、`住宅`、`HOME` 的节点，仅保留标注 `1x`、`1X`、`1×` 或 `1.0x` 的受支持 TCP 节点（不会误选 `0.1x`、`11x`）；过滤条件仍可通过环境变量配置。
 - 支持 SS、SSR、VMess、VLESS（含 Vision/Reality）、Trojan、Hysteria2、AnyTLS；跳过 TUIC、gRPC/XHTTP 等不支持的协议或传输。当前仅为 TCP 协议节点生成代理链；Hysteria2 可作为独立落地节点。
 - 代理链采用 `udp=false`，不支持链式 UDP。Loon 文档只提供全局 `interface-mode`，没有找到与 Surge 组内蜂窝/网卡绑定等价的语法，因此不生成 `📱 蜂窝流量`、`↔️ 中转网卡` 和网卡节点。过滤后无可用中转时直接生成普通落地节点，并在配置中写入 `No eligible relay nodes` 注释。
@@ -64,6 +65,8 @@ export LOON_RELAY_INCLUDE_REGEX='(^|[^0-9.])1([.]0)?[x×](?![0-9a-z.])'
 export LOON_RELAY_EXCLUDE_REGEX='家宽|住宅|HOME'
 docker compose up -d --build
 ```
+
+中转覆盖范围与验证：SS、SSR、VMess、VLESS、Trojan、AnyTLS 落地会生成引用同一中转总选择的 TCP 链；Hysteria2 仍是独立节点，绕过中转；TUIC 及未支持的传输不会输出。没有合格中转时不会生成链。这与 Surge 在支持的落地节点上设置 `underlying-proxy` 的机制不同，不能保证全部协议具有相同行为。自动化测试验证生成引用及协议分支，不代表真实 Loon 已完成联网测试。验证中转应查看 Loon 请求记录的实际代理链及中转服务器连接记录，单看落地出口 IP 无法证明是否经过中转。
 
 语法参考：[Loon 官方示例](https://github.com/Loon0x00/LoonExampleConfig/blob/master/example2.lcf)、[节点文档](https://nsloon.app/docs/Node/)，以及 [clash-nexus 的 Loon 转换器](https://github.com/d0zingcat/clash-nexus/blob/main/converter/loon/loon.go)中以策略组作为首跳的转换方式。自动化测试覆盖服务端生成，仍需在真实 Loon 客户端确认导入、测速和联网效果。
 

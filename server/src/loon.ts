@@ -7,7 +7,6 @@ const TEST_URL = 'http://www.gstatic.com/generate_204';
 const FULL_NODE_SELECT = new Set(['🚀 手动选择', '📶 VoWiFi']);
 const TCP_TYPES = new Set(['ss', 'ssr', 'vmess', 'vless', 'trojan', 'anytls']);
 const RELAY_GROUP = '🔀 中转代理';
-const LANDING_GROUP = '代理节点';
 const RELAY_NODES_GROUP = '中转节点';
 const RELAY_REGIONS: [string, string][] = [
   ['🇭🇰 香港中转', '香港|港|HK|Hong Kong'],
@@ -151,7 +150,7 @@ export async function generateLoon(env: Env, selfBase: string, force = false): P
   const relay = supported(relayLines).filter(p => TCP_TYPES.has(p.type) &&
     (!include || include.test(p.name)) && (!exclude || !exclude.test(p.name)));
   const groups = parseProxyGroups(ini);
-  const used = new Set(['DIRECT', 'REJECT', 'PROXY', RELAY_GROUP, LANDING_GROUP, RELAY_NODES_GROUP,
+  const used = new Set(['DIRECT', 'REJECT', 'PROXY', RELAY_GROUP, RELAY_NODES_GROUP,
     ...RELAY_REGIONS.map(([name]) => name), ...groups.map(g => g.name)]);
   const unique = (name: string) => {
     // Node names are unquoted policy references in Loon's comma-delimited format.
@@ -186,7 +185,6 @@ export async function generateLoon(env: Env, selfBase: string, force = false): P
   if (relayNames.length && !relayChoices.length) relayChoices.push(RELAY_NODES_GROUP);
   const groupLines = [
     `${RELAY_GROUP} = select,${[...relayChoices, 'DIRECT'].join(',')}`,
-    `${LANDING_GROUP} = select,${landingNames.join(',') || 'DIRECT'}`,
     ...(env.RELAY_SUBS.trim() && !relays.length ? ['# No eligible relay nodes; only direct-to-landing nodes are available.'] : []),
     ...groups.map(g => groupLine(g, landingNames, relayNames)),
     ...(relayNames.length ? [`${RELAY_NODES_GROUP} = select,${relayNames.join(',')}`] : []),

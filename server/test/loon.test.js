@@ -75,7 +75,7 @@ test('Loon follows Surge group structure with regional relays and DIRECT bypass'
   assert.match(text, /US = 🔀 中转代理,LANDING@US,udp=false/);
   assert.match(text, /LANDING@HK = Trojan,landing.test,443/);
   assert.match(groupText, /🔀 中转代理 = select,🇭🇰 香港中转,🇸🇬 新加坡中转,DIRECT/);
-  assert.match(groupText, /代理节点 = select,HK,US/);
+  assert.doesNotMatch(groupText, /^代理节点 = /m);
   assert.match(groupText, /中转节点 = select,HK-1x,SG-1x/);
   assert.match(groupText, /🇭🇰 香港中转 = url-test,HK-1x,url=.*interval=300,tolerance=50/);
   assert.match(groupText, /🇸🇬 新加坡中转 = url-test,SG-1x,url=/);
@@ -84,6 +84,42 @@ test('Loon follows Surge group structure with regional relays and DIRECT bypass'
   assert.match(groupText, /📶 VoWiFi = select,DIRECT,HK,US,HK-1x,SG-1x/);
   assert.doesNotMatch(text, /DIRECT@|CHAIN@|via |HK = select/);
   assert.doesNotMatch(groupText, /LANDING@|🇺🇲 美国中转|🇯🇵 日本中转|CELLULAR-ONLY|中转网卡|蜂窝流量/);
+});
+
+test('all emitted TCP landing protocols reference the shared relay selector; other protocols remain explicit', async () => {
+  const b64 = value => Buffer.from(value).toString('base64url');
+  const uris = [
+    `ss://${b64('aes-128-gcm:pw')}@ss.test:443#SS`,
+    `ssr://${b64(`ssr.test:443:origin:aes-256-cfb:plain:${b64('pw')}/?remarks=${b64('SSR')}`)}`,
+    `vmess://${b64(JSON.stringify({ ps: 'VMess', add: 'vmess.test', port: 443, id: 'id', net: 'tcp', tls: 'tls' }))}`,
+    'vless://id@vless.test:443?security=tls#VLESS',
+    'trojan://pw@trojan.test:443#Trojan',
+    'anytls://pw@anytls.test:443#AnyTLS',
+    'hy2://pw@hy2.test:443#Hy2',
+    'tuic://id:pw@tuic.test:443#Tuic',
+    'vless://id@grpc.test:443?type=grpc#Grpc',
+  ];
+  const configEnv = env('trojan://pw@relay.test:443#HK-1x');
+  configEnv.PROXY_SUBS = uris.join('\n');
+  const res = await handleRequest(new Request('http://subhub.test/config?key=test&target=loon'), configEnv);
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  const chainText = text.split('[Proxy Chain]')[1].split('\n[')[0];
+  const chains = new Map(chainText.trim().split('\n').map(line => line.split(' = ')));
+  assert.equal(chains.size, 6);
+  for (const name of ['SS', 'SSR', 'VMess', 'VLESS', 'Trojan', 'AnyTLS']) {
+    assert.equal(chains.get(name), `🔀 中转代理,LANDING@${name},udp=false`, name);
+    assert(text.includes(`LANDING@${name} = `), name);
+  }
+  assert.match(text, /Hy2 = Hysteria2,hy2.test,443/);
+  assert(!chains.has('Hy2'));
+  assert.doesNotMatch(text, /^Tuic = |^Grpc = |^代理节点 = /m);
+  assert.match(text, /🔀 中转代理 = select,🇭🇰 香港中转,DIRECT/);
+  assert.match(text, /🇭🇰 香港中转 = url-test,HK-1x,url=/);
+
+  const surge = await (await handleRequest(new Request('http://subhub.test/config?key=test&target=surge'), env())).text();
+  assert.match(surge, /^代理节点 = select,HK,hidden=true$/m);
+  assert.match(surge, /include-other-group=代理节点/);
 });
 
 test('unsupported relay protocols do not create dangling chains', async () => {
