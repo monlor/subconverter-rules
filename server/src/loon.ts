@@ -1,9 +1,7 @@
 import { Env, ProxyGroup } from './types.js';
-import { fetchFullIni, fetchRepoFile, parseProxyGroups, parseRuleSets } from './ini.js';
+import { fetchFullIni, fetchRepoFile, parseProxyGroups, parseRuleSets, rulesetSlug, loonRemoteRuleSets } from './ini.js';
 import { fetchSubLines, parseSubCacheTtl } from './cache.js';
 import { ParsedProxy, parseProxiesFromSubscription } from './proxy.js';
-import { readRulesetSource } from './local-source.js';
-import { convertRulesetContent } from './ruleset.js';
 
 const TEST_URL = 'http://www.gstatic.com/generate_204';
 const FULL_NODE_SELECT = new Set(['🚀 手动选择', '📶 VoWiFi']);
@@ -120,27 +118,25 @@ function relayFilter(value: string | undefined, fallback: string, variable: stri
   }
 }
 
-function generateRules(ini: string): string {
+function generateRules(ini: string, selfBase: string): [string, string] {
   const lines: string[] = [];
-  let index = 0;
-  for (const rs of parseRuleSets(ini)) {
-    const inline = rs.target.startsWith('[]');
-    const raw = inline ? rs.target.slice(2) : readRulesetSource(rs.target).content;
-    if (!inline) lines.push(`# ruleset ${++index}: ${rs.policy}`);
-    // Expand at runtime: Loon gives local and remote rules different priorities.
-    // A single local list preserves full.ini ordering within each Loon rule class.
-    for (const line of convertRulesetContent(raw, 'surge').split('\n')) {
-      if (!line || line.startsWith('#')) continue;
-      const parts = line.split(',');
-      const opts = new Set(rs.options);
-      while (parts.at(-1) === 'no-resolve') opts.add(parts.pop()!);
-      lines.push([...parts, rs.policy, ...opts].join(','));
+  const remote: string[] = [];
+  const rulesets = parseRuleSets(ini);
+  const indexes = new Map(loonRemoteRuleSets(rulesets).map((rs, i) => [rs, i + 1]));
+  for (const rs of rulesets) {
+    if (/^\[\]FINAL(?:,|$)/i.test(rs.target)) {
+      lines.push(`FINAL,${rs.policy}`);
+    } else {
+      const slug = rs.target.startsWith('[]')
+        ? rs.target.slice(2).toLowerCase().replace(/[^a-z0-9]+/g, '-') : rulesetSlug(rs.target);
+      const id = `${indexes.get(rs)}-${slug}`;
+      remote.push(`${selfBase}/ruleset/${id}?t=loon,policy=${rs.policy},tag=${rs.policy} - ${id},enabled=true`);
     }
   }
-  return lines.join('\n');
+  return [lines.join('\n'), remote.join('\n')];
 }
 
-export async function generateLoon(env: Env, _selfBase: string, force = false): Promise<string> {
+export async function generateLoon(env: Env, selfBase: string, force = false): Promise<string> {
   const include = relayFilter(env.LOON_RELAY_INCLUDE_REGEX, RELAY_INCLUDE, 'LOON_RELAY_INCLUDE_REGEX');
   const exclude = relayFilter(env.LOON_RELAY_EXCLUDE_REGEX, RELAY_EXCLUDE, 'LOON_RELAY_EXCLUDE_REGEX');
   const ttl = parseSubCacheTtl(env.SUB_CACHE_TTL);
@@ -196,12 +192,14 @@ export async function generateLoon(env: Env, _selfBase: string, force = false): 
     ...(relayNames.length ? [`${RELAY_NODES_GROUP} = select,${relayNames.join(',')}`] : []),
     ...regions.map(region => `${region.name} = url-test,${region.nodes.join(',')},url=${TEST_URL},interval=300,tolerance=50`),
   ];
+  const [rules, remoteRules] = generateRules(ini, selfBase);
   let result = template;
   for (const [placeholder, value] of Object.entries({
     '{{PROXY_SECTION}}': proxies.join('\n'),
     '{{PROXY_GROUP_SECTION}}': groupLines.join('\n'),
     '{{PROXY_CHAIN_SECTION}}': chainLines.join('\n'),
-    '{{RULE_SECTION}}': generateRules(ini),
+    '{{RULE_SECTION}}': rules,
+    '{{REMOTE_RULE_SECTION}}': remoteRules,
   })) {
     if (!result.includes(placeholder)) throw new Error(`Missing template placeholder: ${placeholder}`);
     result = result.replace(placeholder, () => value);

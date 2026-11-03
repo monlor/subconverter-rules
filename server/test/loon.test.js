@@ -4,23 +4,64 @@ import { handleRequest } from '../dist/router.js';
 import { MemoryKV } from '../dist/memory-kv.js';
 import { toLoonLine } from '../dist/loon.js';
 import { parseProxyUri } from '../dist/proxy.js';
+import { parseRuleSets, urlRuleSets, loonRemoteRuleSets } from '../dist/ini.js';
+import { readFileSync } from 'node:fs';
+import { convertRulesetContent } from '../dist/ruleset.js';
 
 function env(relay = '') {
   return { SECRET_KEY: 'test', PROXY_SUBS: 'trojan://pw@landing.test:443#HK', RELAY_SUBS: relay, CACHE: new MemoryKV() };
 }
 
-test('Loon UA and explicit target return native config with ordered inline rules', async () => {
+test('Loon UA and explicit target return remote rule entries bound to original policies', async () => {
   for (const [query, ua] of [['&target=loon', 'Surge'], ['', 'Loon/3.5']]) {
     const res = await handleRequest(new Request(`http://subhub.test/config?key=test${query}`, { headers: { 'User-Agent': ua } }), env());
     assert.equal(res.status, 200);
     const text = await res.text();
     assert.match(text, /HK = Trojan,landing.test,443,"pw"/);
     assert.match(text, /\[Proxy Chain\]/);
-    assert.match(text, /DEST-PORT,22,🔌 常见端口/);
-    assert.match(text, /GEOIP,CN,🇨🇳 中国直连\nFINAL,🐟 其他服务\n/);
+    assert.match(text, /\[Rule\]\nFINAL,🐟 其他服务\n/);
     assert.doesNotMatch(text, /RULE-SET|underlying-proxy|include-other-group|\{\{/);
-    assert(text.indexOf('# ruleset 1:') < text.indexOf('# ruleset 2:'));
+    const entries = text.split('[Remote Rule]')[1].split('\n[')[0].trim().split('\n');
+    const expected = loonRemoteRuleSets(parseRuleSets(readFileSync(new URL('../../full.ini', import.meta.url), 'utf8')));
+    assert.equal(entries.length, expected.length);
+    for (let i = 0; i < entries.length; i++) {
+      assert(entries[i].startsWith(`http://subhub.test/ruleset/${i + 1}-`));
+      assert(entries[i].includes(`?t=loon,policy=${expected[i].policy},tag=`));
+      assert(entries[i].endsWith('enabled=true'));
+    }
+    assert.doesNotMatch(text, /PROCESS-NAME,CGEData|DOMAIN-SUFFIX,plex.tv|DEST-PORT,22,/);
+    assert(text.length < 100000);
+    assert(entries.at(-1).includes('-geoip-cn?t=loon,policy=🇨🇳 中国直连,'));
   }
+});
+
+test('public Loon rulesets use native aliases and preserve source no-resolve options', async () => {
+  const request = path => new Request(`http://subhub.test${path}`);
+  const portSets = urlRuleSets(parseRuleSets(readFileSync(new URL('../../full.ini', import.meta.url), 'utf8')));
+  const index = portSets.findIndex(rs => rs.policy === '🔌 常见端口') + 1;
+  const portResponse = await handleRequest(request(`/ruleset/${index}-tcpports?t=loon`), env());
+  assert.equal(portResponse.status, 200);
+  assert.match(await portResponse.text(), /DEST-PORT,22/);
+  const whitelist = await handleRequest(request('/ruleset/2-whitelist?t=loon'), env());
+  assert.equal(whitelist.status, 200);
+  const body = await whitelist.text();
+  assert.match(body, /IP-CIDR,45.121.184.0\/24,no-resolve/);
+  assert.match(body, /DOMAIN-SUFFIX,plex.tv\n/);
+  assert.doesNotMatch(body, /no-resolve,no-resolve|🇨🇳 中国直连/);
+  const srResponse = await handleRequest(request(`/ruleset/${index}?t=shadowrocket`), env());
+  assert.match(await srResponse.text(), /DST-PORT,22/);
+  const fallbackIndex = portSets.length + 1;
+  const fallback = await handleRequest(request(`/ruleset/${fallbackIndex}-geoip-cn?t=loon`), env());
+  assert.equal(fallback.status, 200);
+  assert.equal(await fallback.text(), 'GEOIP,CN\n');
+  const srFallback = await handleRequest(request(`/ruleset/${fallbackIndex}?t=surge`), env());
+  assert.equal(srFallback.status, 404);
+});
+
+test('Loon ruleset conversion normalizes YAML and applies no-resolve only to IP rules', () => {
+  const source = "payload:\n - 'DST-PORT,443'\n - DOMAIN,example.test\n - IP-CIDR,192.0.2.0/24\n - IP-CIDR6,2001:db8::/32,no-resolve";
+  assert.equal(convertRulesetContent(source, 'loon', ['no-resolve']),
+    'DEST-PORT,443\nDOMAIN,example.test\nIP-CIDR,192.0.2.0/24,no-resolve\nIP-CIDR6,2001:db8::/32,no-resolve\n');
 });
 
 test('Loon follows Surge group structure with regional relays and DIRECT bypass', async () => {

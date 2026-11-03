@@ -50,6 +50,12 @@ export function urlRuleSets(rulesets: RuleSet[]): RuleSet[] {
   return rulesets.filter(r => !r.target.startsWith('[]'));
 }
 
+export function loonRemoteRuleSets(rulesets: RuleSet[]): RuleSet[] {
+  // Preserve URL indexes used by other clients, then append inline non-final rules.
+  return [...urlRuleSets(rulesets), ...rulesets.filter(r =>
+    r.target.startsWith('[]') && !/^\[\]FINAL(?:,|$)/i.test(r.target))];
+}
+
 export function rulesetSlug(url: string): string {
   const filename = url.split('/').pop() ?? '';
   return filename.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');

@@ -19,10 +19,10 @@ const SURGE_SUPPORTED = new Set([
 ]);
 
 function aliasesFor(target: ClientTarget) {
-  return target === 'surge' ? SURGE_ALIASES : SR_ALIASES;
+  return target === 'surge' || target === 'loon' ? SURGE_ALIASES : SR_ALIASES;
 }
 function supportedFor(target: ClientTarget) {
-  return target === 'surge' ? SURGE_SUPPORTED : SR_SUPPORTED;
+  return target === 'surge' || target === 'loon' ? SURGE_SUPPORTED : SR_SUPPORTED;
 }
 
 // ─── Line conversion ─────────────────────────────────────────────────────────
@@ -53,11 +53,15 @@ function convertLine(raw: string, target: ClientTarget): string | null {
   return [ruleType, ...parts.slice(1)].join(',');
 }
 
-export function convertRulesetContent(content: string, target: ClientTarget): string {
+export function convertRulesetContent(content: string, target: ClientTarget, options: string[] = []): string {
   const lines: string[] = [];
   for (const raw of content.split('\n')) {
     const converted = convertLine(raw, target);
-    if (converted !== null) lines.push(converted);
+    if (converted === null) continue;
+    // Loon's Remote Rule declaration has no per-rule no-resolve override.
+    const applyNoResolve = target === 'loon' && options.includes('no-resolve') &&
+      /^(IP-CIDR|IP-CIDR6|IP-ASN|GEOIP),/.test(converted) && !converted.split(',').includes('no-resolve');
+    lines.push(applyNoResolve ? `${converted},no-resolve` : converted);
   }
   return lines.join('\n').trimEnd() + '\n';
 }
@@ -69,6 +73,7 @@ export async function handleRuleset(
   target: ClientTarget,
   allowedUrls: Set<string>,
   rulesetUrl: string,
+  options: string[] = [],
 ): Promise<Response> {
   if (!allowedUrls.has(rulesetUrl)) {
     return new Response('Not found', { status: 404 });
@@ -81,7 +86,7 @@ export async function handleRuleset(
     return new Response(`Failed to read local ruleset: ${String(e)}`, { status: 502 });
   }
 
-  const converted = convertRulesetContent(raw, target);
+  const converted = convertRulesetContent(raw, target, options);
   return rulesetResponse(converted);
 }
 

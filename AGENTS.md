@@ -26,7 +26,7 @@
 | `GET /config?key=KEY` | required | Auto-detect client by UA; returns Shadowrocket/Surge/Clash/Loon config |
 | `GET /config?key=KEY&target=surge` | required | Force a specific client (`shadowrocket`, `surge`, `clash`, `loon`) |
 | `GET /sub?key=KEY` | required | Shadowrocket subscription (PROXY@/DIRECT@/RELAY@ prefixed nodes) |
-| `GET /ruleset/<N>?t=shadowrocket\|surge` | public | Converted ruleset for inline RULE-SET references |
+| `GET /ruleset/<N>?t=shadowrocket\|surge\|loon` | public | Converted ruleset for client rule references |
 | `GET /status?key=KEY` | required | Local ruleset status JSON |
 
 Add `&force=1` to bypass the in-TTL check and refetch subscriptions. Subscription bodies (`PROXY_SUBS`/`RELAY_SUBS`) refetch after `SUB_CACHE_TTL` seconds (default 3600). Fetch failure, empty body, or a body with no proxy URIs keeps the last good copy (persisted under `CACHE_DIR`).
@@ -81,7 +81,7 @@ docker compose up -d --build
 These files are read from the image at runtime and must stay in the repo:
 - `shadowrocket/template.conf` — Shadowrocket `[General]`/`[Host]`/`[MITM]` template
 - `surge/template.conf` — Surge static sections with placeholders
-- `loon/template.conf` — Loon static sections with placeholders; rules expanded locally in full.ini order
+- `loon/template.conf` — Loon static sections with placeholders; named Remote Rule references in full.ini order, local FINAL only
 
 ## Validation
 

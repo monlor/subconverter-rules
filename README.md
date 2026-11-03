@@ -54,7 +54,8 @@ http://<host>:3000/sub?key=<KEY>
 - `RELAY_SUBS` 默认排除名称含 `家宽`、`住宅`、`HOME` 的节点，仅保留标注 `1x`、`1X`、`1×` 或 `1.0x` 的受支持 TCP 节点（不会误选 `0.1x`、`11x`）；过滤条件仍可通过环境变量配置。
 - 支持 SS、SSR、VMess、VLESS（含 Vision/Reality）、Trojan、Hysteria2、AnyTLS；跳过 TUIC、gRPC/XHTTP 等不支持的协议或传输。当前仅为 TCP 协议节点生成代理链；Hysteria2 可作为独立落地节点。
 - 代理链采用 `udp=false`，不支持链式 UDP。Loon 文档只提供全局 `interface-mode`，没有找到与 Surge 组内蜂窝/网卡绑定等价的语法，因此不生成 `📱 蜂窝流量`、`↔️ 中转网卡` 和网卡节点。过滤后无可用中转时直接生成普通落地节点，并在配置中写入 `No eligible relay nodes` 注释。
-- 规则在运行时从本地快照展开，保留 `full.ini` 顺序及策略名。Loon 自身仍按域名/IP 等规则类别执行优先级，配置可能较大。
+- 使用 Loon 原生 `[Remote Rule]`：每个规则集单独列出，`policy` 绑定 `full.ini` 中原有代理组，`tag` 显示代理组及规则集名称。URL 指向本服务的 `/ruleset/N-name?t=loon`，仍从镜像内快照提供，不访问 GitHub。
+- `[Rule]` 只保留 `FINAL`，其他规则（包括末尾的 `GEOIP,CN`）按 `full.ini` 顺序放到远程规则中，避免 Loon 本地规则高于远程规则的优先级改变匹配顺序。Loon 自身的域名/IP 分类匹配优先级仍然适用。
 
 过滤条件通过环境变量设置，仅影响 Loon。两个表达式均不区分大小写，设置为空字符串可单独关闭对应过滤；非法表达式会在生成配置时报告变量名。
 

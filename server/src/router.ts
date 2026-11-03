@@ -4,9 +4,9 @@ import { generateShadowrocket } from './shadowrocket.js';
 import { generateSurge } from './surge.js';
 import { generateClash } from './clash.js';
 import { generateLoon } from './loon.js';
-import { handleRuleset } from './ruleset.js';
+import { handleRuleset, convertRulesetContent } from './ruleset.js';
 import { handleStatus } from './status.js';
-import { parseRuleSets, urlRuleSets, fetchFullIni } from './ini.js';
+import { parseRuleSets, urlRuleSets, fetchFullIni, loonRemoteRuleSets } from './ini.js';
 import { fetchUserinfo } from './cache.js';
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -123,7 +123,7 @@ async function handleRulesetRequest(
   force: boolean,
 ): Promise<Response> {
   const t = url.searchParams.get('t') ?? 'shadowrocket';
-  const target: ClientTarget = t === 'surge' ? 'surge' : 'shadowrocket';
+  const target: ClientTarget = t === 'loon' ? 'loon' : t === 'surge' ? 'surge' : 'shadowrocket';
 
   let ini: string;
   try {
@@ -133,7 +133,7 @@ async function handleRulesetRequest(
   }
 
   const rulesets = parseRuleSets(ini);
-  const urlRules = urlRuleSets(rulesets);
+  const urlRules = target === 'loon' ? loonRemoteRuleSets(rulesets) : urlRuleSets(rulesets);
   const allowedUrls = new Set(urlRules.map(r => r.target));
 
   if (index < 1 || index > urlRules.length) {
@@ -141,7 +141,12 @@ async function handleRulesetRequest(
   }
 
   const ruleset = urlRules[index - 1];
-  return handleRuleset(index, target, allowedUrls, ruleset.target);
+  if (target === 'loon' && ruleset.target.startsWith('[]')) {
+    return new Response(convertRulesetContent(ruleset.target.slice(2), 'loon', ruleset.options), {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+  return handleRuleset(index, target, allowedUrls, ruleset.target, ruleset.options);
 }
 
 function helpText(base: string): string {
@@ -155,7 +160,7 @@ Endpoints:
   GET /sub?key=KEY[&info=proxy|relay][&force=1]
   PROXY_SUBS/RELAY_SUBS refetch after SUB_CACHE_TTL seconds (default 3600); fetch failure / empty body keeps the last copy on disk.
   GET /status?key=KEY
-  GET /ruleset/{index}?t=shadowrocket|surge
+  GET /ruleset/{index}?t=shadowrocket|surge|loon
 
 Base URL: ${base}
 `;
