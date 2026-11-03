@@ -25,7 +25,7 @@ test('generated client configs preserve SS relay obfs from Shadowrocket subscrip
     };
     assert.match(await config('surge'), /^HK-1x = ss, relay.test, 8388, .*obfs=http, obfs-host=cdn.test$/m);
     const loon = await config('loon');
-    assert.match(loon, /^HK-1x = Shadowsocks,relay.test,8388,aes-128-gcm,"test-password",obfs-name=http,obfs-host="cdn.test",udp=true$/m);
+    assert.match(loon, /^HK-1x = Shadowsocks,relay.test,8388,aes-128-gcm,"test-password",obfs-name=http,obfs-host=cdn.test,udp=true$/m);
     assert.match(loon, /^HK = 🔀 中转代理,LANDING@HK,udp=false$/m);
     assert.match(await config('clash'), /plugin: obfs\n\s+plugin-opts:\n\s+mode: http\n\s+host: "cdn.test"/);
   }
@@ -151,6 +151,8 @@ test('unsupported relay protocols do not create dangling chains', async () => {
 });
 
 test('native Loon conversion preserves TLS, credentials, Reality and obfuscation', () => {
+  assert.equal(toLoonLine({ name: 'SS', type: 'ss', server: 'ss.test', port: 443,
+    plugin: 'obfs', pluginHost: 'cdn.test,udp=false' }), null);
   assert.match(toLoonLine(parseProxyUri('trojan://pw@node.test:443?type=ws&path=%2Fws&host=cdn.test&sni=sni.test&allowInsecure=1#node')), /transport=ws,path="\/ws",host="cdn.test",sni="sni.test",skip-cert-verify=true/);
   assert.match(toLoonLine(parseProxyUri('vless://id@node.test:443?security=reality&pbk=key&sid=abc&sni=sni.test&flow=xtls-rprx-vision#node')), /public-key="key",short-id="abc"/);
   assert.match(toLoonLine(parseProxyUri('hy2://pw@node.test:443?obfs=salamander&obfs-password=secret#node')), /salamander-password="secret"/);

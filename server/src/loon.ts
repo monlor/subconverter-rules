@@ -34,7 +34,11 @@ export function toLoonLine(p: ParsedProxy): string | null {
       fields.push(p.cipher || 'aes-128-gcm', quote(p.password || ''));
       if (p.plugin === 'obfs') {
         fields.push(`obfs-name=${p.pluginMode || 'http'}`);
-        if (p.pluginHost) fields.push(`obfs-host=${quote(p.pluginHost)}`);
+        // Loon keeps quotes in obfs-host as part of the hostname.
+        if (p.pluginHost) {
+          if (/[\s,"\\]/.test(p.pluginHost)) return null;
+          fields.push(`obfs-host=${p.pluginHost}`);
+        }
         if (p.pluginPath) fields.push(`obfs-uri=${quote(p.pluginPath)}`);
       }
       break;

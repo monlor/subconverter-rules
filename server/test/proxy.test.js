@@ -21,7 +21,7 @@ test('SS Shadowrocket obfs parameters survive parsing and client conversion', ()
       assert.equal(proxy.pluginMode, mode);
       assert.equal(proxy.pluginHost, 'cdn.test');
       assert.match(toSurgeLine(proxy), new RegExp(`obfs=${mode}, obfs-host=cdn.test`));
-      assert.match(toLoonLine(proxy), new RegExp(`obfs-name=${mode},obfs-host="cdn.test"`));
+      assert.match(toLoonLine(proxy), new RegExp(`obfs-name=${mode},obfs-host=cdn.test,`));
       assert.match(toClashProxyYaml(proxy), new RegExp(`mode: ${mode}`));
       assert.match(toClashProxyYaml(proxy), /host: "cdn.test"/);
     }
