@@ -46,7 +46,7 @@ Add `&force=1` to bypass the in-TTL check and refetch subscriptions. Subscriptio
 Each client uses its native mechanism:
 - **Shadowrocket**: nodes get `chain=🔀 中转代理` URI param; relay nodes get `RELAY@` prefix and feed region url-test groups.
 - **Surge**: landing nodes get `underlying-proxy=🔀 中转代理`. Relay nodes from `RELAY_SUBS`.
-- **Loon**: Surge-style `🔀 中转代理` select group offers populated regional url-test groups and DIRECT. Loon references landing chains directly without the unused `代理节点` group; `中转节点` collects raw relays and manual/VoWiFi groups include both chain and raw relay names. Relay filtering uses `LOON_RELAY_INCLUDE_REGEX` (default 1x) and `LOON_RELAY_EXCLUDE_REGEX` (default residential names). No DIRECT@ alternatives, UDP chains or per-policy interface binding.
+- **Loon**: Surge-style `🔀 中转代理` select group offers populated regional url-test groups and DIRECT. Loon references landing chains directly without the unused `代理节点` group or redundant `中转节点` collection; manual/VoWiFi groups include both chain and raw relay names. Unknown-region-only relays are listed directly in the relay selector. Relay filtering uses `LOON_RELAY_INCLUDE_REGEX` (default 1x) and `LOON_RELAY_EXCLUDE_REGEX` (default residential names). No DIRECT@ alternatives, UDP chains or per-policy interface binding.
 - **Clash/Mihomo**: landing nodes get `dialer-proxy: 🔀 中转代理`. Relay nodes from `RELAY_SUBS`.
 
 ### Local development

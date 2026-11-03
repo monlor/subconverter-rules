@@ -95,7 +95,7 @@ test('Loon follows Surge group structure with regional relays and DIRECT bypass'
   assert.match(text, /LANDING@HK = Trojan,landing.test,443/);
   assert.match(groupText, /🔀 中转代理 = select,🇭🇰 香港中转,🇸🇬 新加坡中转,DIRECT/);
   assert.doesNotMatch(groupText, /^代理节点 = /m);
-  assert.match(groupText, /中转节点 = select,HK-1x,SG-1x/);
+  assert.doesNotMatch(groupText, /^中转节点 = /m);
   assert.match(groupText, /🇭🇰 香港中转 = url-test,HK-1x,url=.*interval=300,tolerance=50/);
   assert.match(groupText, /🇸🇬 新加坡中转 = url-test,SG-1x,url=/);
   assert.match(groupText, /♻️ 自动选择 = url-test,HK,US,url=/);
@@ -206,7 +206,8 @@ test('unrecognized relay regions remain selectable and generated groups have no 
         }
       }
     }
-    if (names.length === 1) assert.match(text, /🔀 中转代理 = select,中转节点,DIRECT/);
+    assert.doesNotMatch(text, /^中转节点 = /m);
+    if (names.length === 1) assert.match(text, /🔀 中转代理 = select,Other-1x,DIRECT/);
     else assert.match(text, /🔀 中转代理 = select,🇭🇰 香港中转,🇸🇬 新加坡中转,🇺🇲 美国中转,🇯🇵 日本中转,DIRECT/);
   }
 });
