@@ -8,6 +8,16 @@ test('loadEnv rejects startup without PROXY_SUBS', () => {
   assert.throws(() => loadEnv({}), /PROXY_SUBS is required/);
 });
 
+test('loadEnv preserves Loon relay regex overrides including empty filters', () => {
+  const env = loadEnv({
+    PROXY_SUBS: 'trojan://pw@example.test:443#node',
+    LOON_RELAY_INCLUDE_REGEX: '2x',
+    LOON_RELAY_EXCLUDE_REGEX: '',
+  });
+  assert.equal(env.LOON_RELAY_INCLUDE_REGEX, '2x');
+  assert.equal(env.LOON_RELAY_EXCLUDE_REGEX, '');
+});
+
 test('HTTP server rejects unsupported methods before routing', async () => {
   const server = createSubhubServer({
     SECRET_KEY: 'test-key',

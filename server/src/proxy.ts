@@ -222,6 +222,7 @@ export function parseVmessUri(uri: string): ParsedProxy | null {
     const sni = s('sni') || s('host');
 
     const proxy: ParsedProxy = { name, type: 'vmess', server, port, uuid, alterId: Number(json.aid ?? 0), network, tls };
+    if (s('scy')) proxy.cipher = s('scy');
     if (sni) proxy.sni = sni;
     if (network === 'ws') {
       proxy.wsPath = s('path') || '/';
@@ -281,6 +282,10 @@ export function parseVlessUri(uri: string): ParsedProxy | null {
       proxy.wsHost = params.get('host') ?? '';
     }
     if (network === 'grpc') proxy.grpcService = params.get('serviceName') ?? '';
+    if (network === 'http') {
+      proxy.httpPath = params.get('path') ?? '/';
+      proxy.httpHost = params.get('host') ?? '';
+    }
     return proxy;
   } catch { return null; }
 }

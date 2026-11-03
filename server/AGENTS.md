@@ -27,7 +27,7 @@
 | `src/proxy.ts` | 解析代理 URI |
 | `src/ini.ts` | 解析 `full.ini`；读本地文件 |
 | `src/ruleset.ts` | `/ruleset/:index` 端点 |
-| `src/shadowrocket.ts` / `src/surge.ts` / `src/sub.ts` / `src/clash.ts` | 各客户端配置生成 |
+| `src/shadowrocket.ts` / `src/surge.ts` / `src/sub.ts` / `src/clash.ts` / `src/loon.ts` | 各客户端配置生成 |
 | `src/status.ts` | `/status`：规则集本地状态 |
 | `scripts/vendor-rules.mjs` | **仅构建期**：下载非本仓库前缀的规则集到 `../vendor/gh/` |
 
@@ -60,7 +60,7 @@ Docker 构建时会自动跑这一步。
 | `GET /` | 无 | 帮助文本 |
 | `GET /sub?key=K` | 需要 | SR 节点订阅（PROXY@/DIRECT@/RELAY@ 前缀 + chain 参数） |
 | `GET /config?key=K` | 需要 | 按 UA 自动选客户端 |
-| `GET /config?key=K&target=surge\|clash\|shadowrocket` | 需要 | 强制指定客户端 |
+| `GET /config?key=K&target=surge\|clash\|shadowrocket\|loon` | 需要 | 强制指定客户端 |
 | `GET /ruleset/:index?t=shadowrocket\|surge` | 无 | 规则集（公开） |
 | `GET /status?key=K` | 需要 | 规则文件本地状态 |
 
@@ -84,3 +84,7 @@ docker compose up -d --build
 ```
 
 三阶段构建：`vendor` → `build` → `runtime`。订阅缓存目录 `/app/data` 应挂 volume，否则重启后丢失上次成功的订阅正文。
+
+## Loon
+
+`target=loon` or a Loon User-Agent generates `.lcf` using `loon/template.conf`. Group structure follows Surge: `🔀 中转代理` selects populated Hong Kong/Singapore/US/Japan relay url-test groups or DIRECT; `代理节点` collects landing chains and `中转节点` raw relays. Manual/VoWiFi groups expose both, without DIRECT@ alternatives. Internal LANDING@ nodes appear only inside chains. Unknown-region-only subscriptions expose `中转节点` in the relay selector. Loon uses url-test (300s, tolerance 50ms) instead of Surge smart. No equivalent per-policy cellular/interface binding is documented, so these Surge groups are omitted. `LOON_RELAY_INCLUDE_REGEX` defaults to exact 1x multipliers; `LOON_RELAY_EXCLUDE_REGEX` defaults to `家宽|住宅|HOME`. Both match names case-insensitively; an empty string disables that filter. With no eligible relays, ordinary landing nodes are emitted with an explanatory comment. UDP chains are not enabled. Rules are expanded from local snapshots into `[Rule]` in full.ini order; Loon still applies its own domain/IP matching priority. See README.md for usage and client validation limits.

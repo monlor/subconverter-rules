@@ -3,6 +3,7 @@ import { generateSub } from './sub.js';
 import { generateShadowrocket } from './shadowrocket.js';
 import { generateSurge } from './surge.js';
 import { generateClash } from './clash.js';
+import { generateLoon } from './loon.js';
 import { handleRuleset } from './ruleset.js';
 import { handleStatus } from './status.js';
 import { parseRuleSets, urlRuleSets, fetchFullIni } from './ini.js';
@@ -58,10 +59,12 @@ function detectTarget(request: Request, url: URL): ClientTarget {
   if (override === 'shadowrocket' || override === 'sr') return 'shadowrocket';
   if (override === 'surge') return 'surge';
   if (override === 'clash') return 'clash';
+  if (override === 'loon') return 'loon';
 
   const ua = request.headers.get('User-Agent') ?? '';
   if (/Shadowrocket/i.test(ua)) return 'shadowrocket';
   if (/Surge/i.test(ua)) return 'surge';
+  if (/Loon/i.test(ua)) return 'loon';
   if (/clash|mihomo|stash|meta/i.test(ua)) return 'clash';
   return 'shadowrocket';
 }
@@ -96,6 +99,12 @@ async function handleConfig(
       const config = await generateSurge(env, selfBase, force);
       return new Response(config, {
         headers: { ...subsHeaders, 'Content-Disposition': 'attachment; filename="MySub.conf"' },
+      });
+    }
+    if (target === 'loon') {
+      const config = await generateLoon(env, selfBase, force);
+      return new Response(config, {
+        headers: { ...subsHeaders, 'Content-Disposition': 'attachment; filename="MySub.lcf"' },
       });
     }
     const config = await generateClash(env, selfBase, force);
@@ -142,7 +151,7 @@ rulesets) — this service never fetches anything from GitHub at runtime. Only
 your own subscription URLs (PROXY_SUBS/RELAY_SUBS) are fetched live.
 
 Endpoints:
-  GET /config?key=KEY[&target=shadowrocket|surge|clash][&force=1]
+  GET /config?key=KEY[&target=shadowrocket|surge|clash|loon][&force=1]
   GET /sub?key=KEY[&info=proxy|relay][&force=1]
   PROXY_SUBS/RELAY_SUBS refetch after SUB_CACHE_TTL seconds (default 3600); fetch failure / empty body keeps the last copy on disk.
   GET /status?key=KEY

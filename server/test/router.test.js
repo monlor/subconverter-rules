@@ -15,6 +15,7 @@ test('router generates all client formats without fetching GitHub', async () => 
     ['/config?key=test-key', '[Proxy Group]'],
     ['/config?key=test-key&target=surge', '[Proxy]'],
     ['/config?key=test-key&target=clash', 'rule-providers:'],
+    ['/config?key=test-key&target=loon', '[Proxy Chain]'],
     ['/ruleset/1?t=shadowrocket', 'DOMAIN'],
   ];
 

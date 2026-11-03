@@ -15,7 +15,7 @@ CI（`.github/workflows/docker-publish.yml`）在推送到 `main` 或打 tag 时
 
 ### 使用方法
 
-配置地址（Shadowrocket/Surge/Clash 客户端自动识别）：
+配置地址（Shadowrocket/Surge/Clash/Loon 客户端自动识别）：
 
 ```
 http://<host>:3000/config?key=<SECRET_KEY>
@@ -26,6 +26,7 @@ http://<host>:3000/config?key=<SECRET_KEY>
 ```
 http://<host>:3000/config?key=<KEY>&target=surge
 http://<host>:3000/config?key=<KEY>&target=clash
+http://<host>:3000/config?key=<KEY>&target=loon
 ```
 
 Shadowrocket 节点订阅（仅 SR 使用，含 PROXY@/DIRECT@/RELAY@ 链式代理）：
@@ -41,6 +42,29 @@ http://<host>:3000/sub?key=<KEY>
 | Shadowrocket | 节点 URI `chain=🔀 中转代理` + RELAY@ 中转组 |
 | Surge | 落地节点 `underlying-proxy=🔀 中转代理` |
 | Clash/Mihomo | 落地节点 `dialer-proxy: 🔀 中转代理` |
+| Loon | `[Proxy Chain]`：中转选择组 → 落地；按 Surge 的组结构组织 |
+
+### Loon 使用说明
+
+在 Loon 中导入上面的 `target=loon` 配置地址。沿用 `PROXY_SUBS`（落地）和 `RELAY_SUBS`（中转）；重新构建镜像后生效。
+
+- `🔀 中转代理` 与 Surge 一样是手动选择组：可选 `🇭🇰 香港中转`、`🇸🇬 新加坡中转`、`🇺🇲 美国中转`、`🇯🇵 日本中转` 和 `DIRECT`；仅生成有合格节点的地区组。各地区使用 Loon 原生 `url-test` 自动测速（300 秒，切换容差 50ms），对应 Surge 的 `smart`。没有任何已识别地区时提供 `中转节点` 作为选择入口。
+- `代理节点` 收集落地代理链；`中转节点` 收集中转原始节点。`🚀 手动选择`、`📶 VoWiFi` 与 Surge 一样同时提供落地链和原始中转节点，其他业务/地区组沿用 `full.ini`。
+- 选择普通落地名称经过当前选定的中转地区；在 `🔀 中转代理` 里选择 `DIRECT` 时，全部落地跳过中转。直接选择中转原始节点则只使用该节点作为出口。取消 `DIRECT@落地` 等额外选项；`LANDING@` 节点仅用于链内部，不加入代理组。
+- `RELAY_SUBS` 默认排除名称含 `家宽`、`住宅`、`HOME` 的节点，仅保留标注 `1x`、`1X`、`1×` 或 `1.0x` 的受支持 TCP 节点（不会误选 `0.1x`、`11x`）；过滤条件仍可通过环境变量配置。
+- 支持 SS、SSR、VMess、VLESS（含 Vision/Reality）、Trojan、Hysteria2、AnyTLS；跳过 TUIC、gRPC/XHTTP 等不支持的协议或传输。当前仅为 TCP 协议节点生成代理链；Hysteria2 可作为独立落地节点。
+- 代理链采用 `udp=false`，不支持链式 UDP。Loon 文档只提供全局 `interface-mode`，没有找到与 Surge 组内蜂窝/网卡绑定等价的语法，因此不生成 `📱 蜂窝流量`、`↔️ 中转网卡` 和网卡节点。过滤后无可用中转时直接生成普通落地节点，并在配置中写入 `No eligible relay nodes` 注释。
+- 规则在运行时从本地快照展开，保留 `full.ini` 顺序及策略名。Loon 自身仍按域名/IP 等规则类别执行优先级，配置可能较大。
+
+过滤条件通过环境变量设置，仅影响 Loon。两个表达式均不区分大小写，设置为空字符串可单独关闭对应过滤；非法表达式会在生成配置时报告变量名。
+
+```sh
+export LOON_RELAY_INCLUDE_REGEX='(^|[^0-9.])1([.]0)?[x×](?![0-9a-z.])'
+export LOON_RELAY_EXCLUDE_REGEX='家宽|住宅|HOME'
+docker compose up -d --build
+```
+
+语法参考：[Loon 官方示例](https://github.com/Loon0x00/LoonExampleConfig/blob/master/example2.lcf)、[节点文档](https://nsloon.app/docs/Node/)，以及 [clash-nexus 的 Loon 转换器](https://github.com/d0zingcat/clash-nexus/blob/main/converter/loon/loon.go)中以策略组作为首跳的转换方式。自动化测试覆盖服务端生成，仍需在真实 Loon 客户端确认导入、测速和联网效果。
 
 ### 规则文件
 
@@ -71,6 +95,8 @@ docker run -d --restart unless-stopped -p 3000:3000 \
 | `SECRET_KEY` | 否 | 鉴权密钥；不设置则 `/config`、`/sub`、`/status` 无需鉴权 |
 | `PROXY_SUBS` | 是 | 落地代理订阅地址 |
 | `RELAY_SUBS` | 否 | 中转代理订阅地址 |
+| `LOON_RELAY_INCLUDE_REGEX` | 否 | Loon 中转名称保留正则，默认只保留 1x；空字符串关闭保留过滤 |
+| `LOON_RELAY_EXCLUDE_REGEX` | 否 | Loon 中转名称排除正则，默认 `家宽\|住宅\|HOME`；空字符串关闭排除过滤 |
 | `SURGE_INTERFACE` | 否 | Surge 出站接口名 |
 | `PORT` | 否 | 监听端口，默认 `3000` |
 | `SUB_CACHE_TTL` | 否 | 订阅刷新间隔（秒），默认 `3600`；`0` 表示每次请求都拉 |

@@ -17,14 +17,14 @@
 
 ## Server (Docker)
 
-`server/` is a Node.js service that generates Shadowrocket / Surge / Clash configs on demand. Rules (`full.ini`, `rules/`, vendored ACL4SSR snapshots) are baked into the image at build time. Runtime network access is only used to fetch `PROXY_SUBS` / `RELAY_SUBS`.
+`server/` is a Node.js service that generates Shadowrocket / Surge / Clash / Loon configs on demand. Rules (`full.ini`, `rules/`, vendored ACL4SSR snapshots) are baked into the image at build time. Runtime network access is only used to fetch `PROXY_SUBS` / `RELAY_SUBS`.
 
 ### Endpoints
 
 | Endpoint | Auth | Description |
 |---|---|---|
-| `GET /config?key=KEY` | required | Auto-detect client by UA; returns Shadowrocket/Surge/Clash config |
-| `GET /config?key=KEY&target=surge` | required | Force a specific client (`shadowrocket`, `surge`, `clash`) |
+| `GET /config?key=KEY` | required | Auto-detect client by UA; returns Shadowrocket/Surge/Clash/Loon config |
+| `GET /config?key=KEY&target=surge` | required | Force a specific client (`shadowrocket`, `surge`, `clash`, `loon`) |
 | `GET /sub?key=KEY` | required | Shadowrocket subscription (PROXY@/DIRECT@/RELAY@ prefixed nodes) |
 | `GET /ruleset/<N>?t=shadowrocket\|surge` | public | Converted ruleset for inline RULE-SET references |
 | `GET /status?key=KEY` | required | Local ruleset status JSON |
@@ -37,6 +37,7 @@ Add `&force=1` to bypass the in-TTL check and refetch subscriptions. Subscriptio
 |---|---|
 | `Shadowrocket` | Shadowrocket `.conf` |
 | `Surge` | Surge `.conf` |
+| `Loon` | Loon `.lcf` |
 | `clash` / `mihomo` / `stash` / `meta` | Clash/Mihomo `.yaml` |
 | unknown | Shadowrocket (default) |
 
@@ -45,6 +46,7 @@ Add `&force=1` to bypass the in-TTL check and refetch subscriptions. Subscriptio
 Each client uses its native mechanism:
 - **Shadowrocket**: nodes get `chain=🔀 中转代理` URI param; relay nodes get `RELAY@` prefix and feed region url-test groups.
 - **Surge**: landing nodes get `underlying-proxy=🔀 中转代理`. Relay nodes from `RELAY_SUBS`.
+- **Loon**: Surge-style `🔀 中转代理` select group offers populated regional url-test groups and DIRECT. `代理节点` / `中转节点` collect landing chains / raw relays; manual and VoWiFi groups include both. Relay filtering uses `LOON_RELAY_INCLUDE_REGEX` (default 1x) and `LOON_RELAY_EXCLUDE_REGEX` (default residential names). No DIRECT@ alternatives, UDP chains or per-policy interface binding.
 - **Clash/Mihomo**: landing nodes get `dialer-proxy: 🔀 中转代理`. Relay nodes from `RELAY_SUBS`.
 
 ### Local development
@@ -79,6 +81,7 @@ docker compose up -d --build
 These files are read from the image at runtime and must stay in the repo:
 - `shadowrocket/template.conf` — Shadowrocket `[General]`/`[Host]`/`[MITM]` template
 - `surge/template.conf` — Surge static sections with placeholders
+- `loon/template.conf` — Loon static sections with placeholders; rules expanded locally in full.ini order
 
 ## Validation
 

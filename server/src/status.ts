@@ -32,6 +32,7 @@ export async function handleStatus(
     { name: 'Shadowrocket nodes (/sub)', path: '/sub' },
     { name: 'Surge', path: '/config?target=surge' },
     { name: 'Clash / Mihomo', path: '/config?target=clash' },
+    { name: 'Loon', path: '/config?target=loon' },
   ];
 
   const subs = {

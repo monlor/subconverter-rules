@@ -9,6 +9,7 @@ on:
       - "rules/**"
       - "shadowrocket/**"
       - "surge/**"
+      - "loon/**"
       - "server/**"
       - "Dockerfile"
       - "docker-compose.yml"
@@ -19,6 +20,7 @@ on:
       - "rules/**"
       - "shadowrocket/**"
       - "surge/**"
+      - "loon/**"
       - "server/**"
       - "Dockerfile"
       - "docker-compose.yml"
@@ -45,7 +47,7 @@ jobs:
 
       - name: Test server
         working-directory: server
-        run: npm ci && npm test
+        run: npm ci && npm run vendor && npm test
 
   build-and-push:
     if: github.event_name != 'pull_request'

@@ -18,6 +18,7 @@ COPY full.ini ./
 COPY rules ./rules
 COPY shadowrocket ./shadowrocket
 COPY surge ./surge
+COPY loon ./loon
 COPY --from=vendor /repo/vendor ./vendor
 COPY --from=build /app/server/dist ./server/dist
 VOLUME ["/app/data"]

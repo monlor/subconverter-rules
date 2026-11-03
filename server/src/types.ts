@@ -7,12 +7,15 @@ export interface Env {
   RELAY_SUBS: string;   // relay/chain proxies (RELAY@ in SR sub)
   // Optional Surge egress interface (e.g. "en0")
   SURGE_INTERFACE?: string;
+  // Loon relay name filters (case-insensitive regex); empty disables that filter.
+  LOON_RELAY_INCLUDE_REGEX?: string;
+  LOON_RELAY_EXCLUDE_REGEX?: string;
   // Seconds before PROXY_SUBS/RELAY_SUBS are refetched (default 3600). 0 = always refetch.
   SUB_CACHE_TTL?: string;
   CACHE: MemoryKV;
 }
 
-export type ClientTarget = 'shadowrocket' | 'surge' | 'clash';
+export type ClientTarget = 'shadowrocket' | 'surge' | 'clash' | 'loon';
 
 // Protocols that don't support proxy-passthrough (chain param not applicable)
 export const PROXYPASS_UNSUPPORTED = new Set([
