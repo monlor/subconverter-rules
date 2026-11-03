@@ -44,7 +44,7 @@ http://<host>:3000/sub?key=<KEY>
 | Clash/Mihomo | 落地节点 `dialer-proxy: 🔀 中转代理` |
 | Loon | `[Proxy Chain]`：中转选择组 → 落地；按 Surge 的组结构组织 |
 
-SS 订阅解析支持 SIP002 `plugin=obfs-local;...`（也接受 `simple-obfs`）和 Shadowrocket `obfs=http\|tls&obfsParam=混淆域名` 参数，适用于用户信息 Base64 和旧式整段 Base64 链接。Surge、Loon、Clash 输出保留对应的混淆方式与域名；未配置混淆的节点不会自动添加混淆。
+SS 订阅解析支持 SIP002 `plugin=obfs-local;...`（也接受 `simple-obfs`）和 Shadowrocket `obfs=http` / `obfs=tls` 搭配 `obfsParam=混淆域名` 参数，适用于用户信息 Base64 和旧式整段 Base64 链接。Surge、Loon、Clash 输出保留对应的混淆方式与域名；未配置混淆的节点不会自动添加混淆。
 
 ### Loon 使用说明
 
