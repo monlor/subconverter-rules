@@ -12,6 +12,25 @@ function env(relay = '') {
   return { SECRET_KEY: 'test', PROXY_SUBS: 'trojan://pw@landing.test:443#HK', RELAY_SUBS: relay, CACHE: new MemoryKV() };
 }
 
+test('generated client configs preserve SS relay obfs from Shadowrocket subscription links', async () => {
+  for (const authority of [
+    `${Buffer.from('aes-128-gcm:test-password').toString('base64url')}@relay.test:8388`,
+    Buffer.from('aes-128-gcm:test-password@relay.test:8388').toString('base64url'),
+  ]) {
+    const configEnv = env(`ss://${authority}/?obfs=http&obfsParam=cdn.test#HK-1x`);
+    const config = async target => {
+      const response = await handleRequest(new Request(`http://subhub.test/config?key=test&target=${target}`), configEnv);
+      assert.equal(response.status, 200);
+      return response.text();
+    };
+    assert.match(await config('surge'), /^HK-1x = ss, relay.test, 8388, .*obfs=http, obfs-host=cdn.test$/m);
+    const loon = await config('loon');
+    assert.match(loon, /^HK-1x = Shadowsocks,relay.test,8388,aes-128-gcm,"test-password",obfs-name=http,obfs-host="cdn.test",udp=true$/m);
+    assert.match(loon, /^HK = 🔀 中转代理,LANDING@HK,udp=false$/m);
+    assert.match(await config('clash'), /plugin: obfs\n\s+plugin-opts:\n\s+mode: http\n\s+host: "cdn.test"/);
+  }
+});
+
 test('Loon UA and explicit target return remote rule entries bound to original policies', async () => {
   for (const [query, ua] of [['&target=loon', 'Surge'], ['', 'Loon/3.5']]) {
     const res = await handleRequest(new Request(`http://subhub.test/config?key=test${query}`, { headers: { 'User-Agent': ua } }), env());

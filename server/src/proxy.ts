@@ -110,16 +110,18 @@ export function parseSSUri(uri: string): ParsedProxy | null {
     const hashIdx = withoutScheme.indexOf('#');
     const name = hashIdx !== -1 ? decodeName(withoutScheme.slice(hashIdx + 1)) : 'SS Node';
     const main = hashIdx !== -1 ? withoutScheme.slice(0, hashIdx) : withoutScheme;
+    // Both SIP002 and legacy SS links can carry plugin/Shadowrocket query options.
+    const queryIdx = main.indexOf('?');
+    const queryStr = queryIdx === -1 ? '' : main.slice(queryIdx + 1);
+    const authority = (queryIdx === -1 ? main : main.slice(0, queryIdx)).replace(/\/$/, '');
 
-    const atIdx = main.lastIndexOf('@');
-    let method: string, password: string, server: string, portStr: string, queryStr = '';
+    const atIdx = authority.lastIndexOf('@');
+    let method: string, password: string, server: string, portStr: string;
 
     if (atIdx !== -1) {
       // SIP002: userinfo@host:port[/?plugin=...]
-      const userinfo = main.slice(0, atIdx);
-      let hostpart = main.slice(atIdx + 1);
-      const qIdx = hostpart.indexOf('?');
-      if (qIdx !== -1) { queryStr = hostpart.slice(qIdx + 1); hostpart = hostpart.slice(0, qIdx); }
+      const userinfo = authority.slice(0, atIdx);
+      let hostpart = authority.slice(atIdx + 1);
       const slashIdx = hostpart.indexOf('/');
       if (slashIdx !== -1) hostpart = hostpart.slice(0, slashIdx);
 
@@ -137,7 +139,7 @@ export function parseSSUri(uri: string): ParsedProxy | null {
       portStr = hostpart.slice(lastColon + 1);
     } else {
       // Legacy: BASE64(method:password@host:port)
-      const decoded = safeAtob(main.split('/')[0]);
+      const decoded = safeAtob(authority);
       const colonIdx = decoded.indexOf(':');
       if (colonIdx === -1) return null;
       method = decoded.slice(0, colonIdx);
@@ -157,18 +159,26 @@ export function parseSSUri(uri: string): ParsedProxy | null {
     if (queryStr) {
       const params = new URLSearchParams(queryStr);
       const pluginRaw = params.get('plugin') ?? '';
-      if (pluginRaw.includes('obfs-local') || pluginRaw.startsWith('obfs')) {
+      const pluginName = pluginRaw.split(';')[0];
+      if (['obfs-local', 'obfs', 'simple-obfs'].includes(pluginName)) {
         const pluginParts = pluginRaw.split(';');
         proxy.plugin = 'obfs';
         for (const p of pluginParts.slice(1)) {
-          const [k, v] = p.split('=');
+          const separator = p.indexOf('=');
+          if (separator === -1) continue;
+          const k = p.slice(0, separator), v = p.slice(separator + 1);
           if (k === 'obfs') proxy.pluginMode = v;
           if (k === 'obfs-host') proxy.pluginHost = v;
           if (k === 'obfs-uri') proxy.pluginPath = v;
         }
-        if (proxy.pluginMode == null) proxy.pluginMode = 'http';
-        if (proxy.pluginMode !== 'http' && proxy.pluginMode !== 'tls') return null;
+        proxy.pluginMode ??= 'http';
+      } else if (!pluginRaw && params.has('obfs') && params.get('obfs') !== 'none') {
+        proxy.plugin = 'obfs';
+        proxy.pluginMode = params.get('obfs')!;
+        proxy.pluginHost = params.get('obfsParam') ?? params.get('obfs-host') ?? undefined;
+        proxy.pluginPath = params.get('obfs-uri') ?? undefined;
       }
+      if (proxy.plugin === 'obfs' && proxy.pluginMode !== 'http' && proxy.pluginMode !== 'tls') return null;
     }
 
     return proxy;
